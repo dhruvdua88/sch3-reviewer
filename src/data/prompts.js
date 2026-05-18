@@ -14,7 +14,24 @@
 //   CARO:         call CARO_PROMPT(keyMetrics, companyName, isFirstYear, natureOfBusiness)
 //                 and send the returned string as `userPrompt`.
 
-export const SCH3_PROMPT = `Reviewer: senior Indian Chartered Accountant. Standards in scope:
+// ============================================================
+// SCH3 prompt — built from a shared preamble + per-section test
+// bodies + a final self-review pass.
+//
+// Why this is split: the full 73-test prompt was timing out at 240 s on
+// dense PDFs (a single non-streaming call). The orchestrator now fires
+// three parallel calls (chunks A / B / C), each with its own subset of
+// the test catalogue and a per-chunk 25-issue cap. The chunked exports
+// share the same severity rubric, evidence contract, do-not-flag list,
+// and JSON output schema — only the OUTPUT BUDGET line and the test
+// bodies differ.
+//
+// SCH3_PROMPT (the un-chunked full prompt) is retained for callers that
+// want the legacy single-call path; new code should use the chunked
+// exports.
+// ============================================================
+
+const _SCH3_PREAMBLE_HEAD = `Reviewer: senior Indian Chartered Accountant. Standards in scope:
 - Schedule III to the Companies Act 2013, Division I (AS basis), as amended by MCA Notification G.S.R. 207(E) dated 24-Mar-2021.
 - Accounting Standards (AS) notified under Section 133 read with the Companies (Accounting Standards) Rules, 2021.
 - Companies Act 2013 disclosures (Sec 134(3)(m), Sec 22 of MSMED Act 2006, Sec 135 CSR, Sec 197 Auditor's remuneration).
@@ -50,11 +67,9 @@ TEST EXECUTION RULE for each test:
 3. If the test PASSES (no fail-if), SKIP silently.
 4. If the test FAILS, emit ONE issue with the test ID and complete fields.
 
-OUTPUT BUDGET (HARD CAP):
-- Return at most 60 issues. If more than 60 distinct test failures exist, return the 60 highest-severity findings (CRITICAL first, then HIGH, then MEDIUM, then LOW), breaking ties by section order (A → B → C → D → E → F).
-- Strict word budgets on each issue: title ≤ 12 words, observation ≤ 50 words, evidenceQuote ≤ 30 words, implication ≤ 25 words, recommendation ≤ 25 words.
+`;
 
-────────────────────────────────────────────
+const _SCH3_PREAMBLE_TAIL = `────────────────────────────────────────────
 RETURN ONLY VALID JSON (no markdown, no commentary):
 
 {
@@ -88,7 +103,10 @@ RETURN ONLY VALID JSON (no markdown, no commentary):
 
 Order issues by severity: CRITICAL → HIGH → MEDIUM → LOW. Use the test ID as 'id'. Do not invent issues outside this test list.
 
-════════════════════════════════════════════
+`;
+
+// Section bodies — each starts with its own ════ divider + SECTION header.
+const _SCH3_SECTION_A = `════════════════════════════════════════════
 SECTION A — INTERNAL CONSISTENCY [all CRITICAL]
 ════════════════════════════════════════════
 
@@ -154,7 +172,9 @@ T73  Opening = prior-year closing on every movement schedule.
      TRIGGER  : A movement schedule is presented for any line — Property Plant & Equipment, Reserves & Surplus, CWIP, Intangible Assets under Development, Investments, Provisions, etc. — showing both opening AND closing balances with comparatives.
      FAIL IF  : The current-year opening balance does NOT equal the prior-year closing balance for any line (gross block, accumulated depreciation, net block, each reserve type, etc.). Where a restatement occurred and is disclosed in a "reclassification" or "restatement" footnote, that explains the variance — do NOT flag in that case. Otherwise flag with the line item, the current opening, the prior closing, and the unexplained variance.
 
-════════════════════════════════════════════
+`;
+
+const _SCH3_SECTION_B = `════════════════════════════════════════════
 SECTION B — 2021 MCA AMENDMENT MANDATORY DISCLOSURES [all HIGH unless noted]
 ════════════════════════════════════════════
 
@@ -229,7 +249,9 @@ T24  Trade Payables ageing schedule.
      TRIGGER  : Trade Payables > 0.
      FAIL IF  : Ageing buckets are not — Less than 1 yr / 1-2 yr / 2-3 yr / More than 3 yr — split into MSME / Others / Disputed dues to MSME / Disputed dues to Others, with comparatives.
 
-════════════════════════════════════════════
+`;
+
+const _SCH3_SECTION_C = `════════════════════════════════════════════
 SECTION C — OTHER MANDATORY SCH III PRESENTATION [HIGH / MEDIUM]
 ════════════════════════════════════════════
 
@@ -314,7 +336,9 @@ T44  Current maturities of long-term debt — classification. [HIGH]
      TRIGGER  : Long-term Borrowings exist.
      FAIL IF  : Current maturities of long-term borrowings are shown under "Other Current Liabilities" instead of under "Short-Term Borrowings" with separate disclosure (the 2021 amendment moved this classification — current maturities now belong under Short-Term Borrowings).
 
-════════════════════════════════════════════
+`;
+
+const _SCH3_SECTION_D = `════════════════════════════════════════════
 SECTION D — AS COMPLIANCE [HIGH / MEDIUM]
 ════════════════════════════════════════════
 
@@ -356,7 +380,9 @@ T54  AS-18 Related Party — Parent name + outstanding balances always. [MEDIUM]
      TRIGGER  : The Company has a parent / ultimate parent / Key Managerial Personnel.
      FAIL IF  : Name of the Parent and (where applicable) Ultimate Parent / Next Most Senior Parent is not disclosed even where there have been no transactions during the year; OR balances outstanding at year-end with each related-party category are not separately disclosed alongside the transaction amounts during the year.
 
-════════════════════════════════════════════
+`;
+
+const _SCH3_SECTION_E = `════════════════════════════════════════════
 SECTION E — COMPANIES ACT / OTHER STATUTES [MEDIUM]
 ════════════════════════════════════════════
 
@@ -381,7 +407,9 @@ T59  Note 1 — Corporate Information. [MEDIUM]
 T60  Note 2 — Significant Accounting Policies presence. [MEDIUM]
      FAIL IF  : Note 2 is missing any of these policies that are relevant to the company — basis of preparation, revenue recognition, depreciation method and rates (with WDV/SLM), foreign currency, employee benefits, leases, taxation, inventories, borrowing costs, impairment, provisions/contingent liabilities, earnings per share.
 
-════════════════════════════════════════════
+`;
+
+const _SCH3_SECTION_F = `════════════════════════════════════════════
 SECTION F — P&L DISCLOSURE SUB-CLASSIFICATION [HIGH / MEDIUM]
 ════════════════════════════════════════════
 
@@ -420,8 +448,9 @@ T68  Exceptional / Extraordinary / Prior-period items — separate disclosure. [
 T69  Auditor's remuneration — six sub-categories per Sch III. [MEDIUM]
      TRIGGER  : Auditor's remuneration appears in the notes.
      FAIL IF  : Auditor's remuneration is not disaggregated into the Sch III mandated categories — (a) as auditor; (b) for taxation matters; (c) for company law matters; (d) for management services; (e) for other services; (f) for reimbursement of expenses. (Plus GST / service tax where separately charged.)
+`;
 
-════════════════════════════════════════════
+const _SCH3_FINAL_PASS = `════════════════════════════════════════════
 FINAL SELF-REVIEW PASS — perform before returning the JSON:
 - Re-read every issue. Drop any that lack an evidenceQuote AND a rupee figure (unless you have explicitly said "Disclosure not located in the document" after a thorough read).
 - Drop any issue that conflicts with the DO-NOT-FLAG list.
@@ -429,6 +458,59 @@ FINAL SELF-REVIEW PASS — perform before returning the JSON:
 - Confirm sort order: CRITICAL → HIGH → MEDIUM → LOW.
 - Return ONLY the JSON object.
 ════════════════════════════════════════════`;
+
+function _sch3OutputBudget({ scopeNotice, maxIssues, tieBreakSections }) {
+  return `OUTPUT BUDGET (HARD CAP):
+- ${scopeNotice}
+- Return at most ${maxIssues} issues. If more distinct test failures exist, return the ${maxIssues} highest-severity findings (CRITICAL first, then HIGH, then MEDIUM, then LOW), breaking ties by section order (${tieBreakSections}).
+- Strict word budgets on each issue: title \u2264 12 words, observation \u2264 50 words, evidenceQuote \u2264 30 words, implication \u2264 25 words, recommendation \u2264 25 words.`;
+}
+
+function _buildSch3Prompt({ scopeNotice, maxIssues, tieBreakSections, sectionBodies }) {
+  return [
+    _SCH3_PREAMBLE_HEAD,
+    _sch3OutputBudget({ scopeNotice, maxIssues, tieBreakSections }),
+    '',
+    _SCH3_PREAMBLE_TAIL,
+    ...sectionBodies,
+    _SCH3_FINAL_PASS,
+  ].join('\n');
+}
+
+// Chunk A — Sections A (internal consistency + tie-outs) + B (2021 MCA amendment).
+// 28 tests: T01\u2013T06, T70\u2013T73, T07\u2013T24.
+export const SCH3_PROMPT_CHUNK_A = _buildSch3Prompt({
+  scopeNotice: 'CHUNK A of 3 \u2014 evaluate ONLY the tests in Sections A and B below. Sections C, D, E and F are being evaluated in parallel calls; do NOT emit issues for tests outside this chunk.',
+  maxIssues: 25,
+  tieBreakSections: 'A \u2192 B',
+  sectionBodies: [_SCH3_SECTION_A, _SCH3_SECTION_B],
+});
+
+// Chunk B \u2014 Sections C (Sch III misc) + D (AS compliance). 30 tests: T25\u2013T44, T45\u2013T54.
+export const SCH3_PROMPT_CHUNK_B = _buildSch3Prompt({
+  scopeNotice: 'CHUNK B of 3 \u2014 evaluate ONLY the tests in Sections C and D below. Sections A, B, E and F are being evaluated in parallel calls; do NOT emit issues for tests outside this chunk.',
+  maxIssues: 25,
+  tieBreakSections: 'C \u2192 D',
+  sectionBodies: [_SCH3_SECTION_C, _SCH3_SECTION_D],
+});
+
+// Chunk C \u2014 Sections E (Companies Act / other statutes) + F (P&L sub-classification). 15 tests: T55\u2013T60, T61\u2013T69.
+export const SCH3_PROMPT_CHUNK_C = _buildSch3Prompt({
+  scopeNotice: 'CHUNK C of 3 \u2014 evaluate ONLY the tests in Sections E and F below. Sections A, B, C and D are being evaluated in parallel calls; do NOT emit issues for tests outside this chunk.',
+  maxIssues: 25,
+  tieBreakSections: 'E \u2192 F',
+  sectionBodies: [_SCH3_SECTION_E, _SCH3_SECTION_F],
+});
+
+// Legacy single-call prompt \u2014 the full 73-test catalogue in one shot. Retained for
+// any caller that has not migrated to the chunked path; new code should prefer
+// SCH3_PROMPT_CHUNK_A / _B / _C.
+export const SCH3_PROMPT = _buildSch3Prompt({
+  scopeNotice: 'Evaluate the FULL 73-test Schedule III catalogue (Sections A through F).',
+  maxIssues: 60,
+  tieBreakSections: 'A \u2192 B \u2192 C \u2192 D \u2192 E \u2192 F',
+  sectionBodies: [_SCH3_SECTION_A, _SCH3_SECTION_B, _SCH3_SECTION_C, _SCH3_SECTION_D, _SCH3_SECTION_E, _SCH3_SECTION_F],
+});
 
 // ============================================================
 // NOTES_DRAFT_PROMPT — produce ONE comprehensive "Significant Accounting

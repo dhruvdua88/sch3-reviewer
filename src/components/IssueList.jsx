@@ -18,6 +18,7 @@ export function IssueList({
   issues, issueStates,
   onSetStatus, onSetNote,
   onViewSource,
+  partialChunkFailure,
 }) {
   // ── Filter state ──
   // statusFilter is a Set of statuses to SHOW. By default we hide dismissed.
@@ -128,6 +129,28 @@ export function IssueList({
 
   return (
     <div>
+      {/* Partial-chunk-failure banner — shown when one or two of the three
+          parallel SCH3 chunks rejected and we shipped the rest. */}
+      {partialChunkFailure?.failed?.length > 0 && (
+        <div role="status" style={{
+          marginBottom: 14,
+          padding: '10px 14px',
+          background: '#fef9f1',
+          border: `1px solid ${COLORS.BORDER_STRONG || COLORS.BORDER}`,
+          borderLeft: `3px solid ${COLORS.CRIT}`,
+          borderRadius: 6,
+          fontSize: 12.5,
+          color: COLORS.TEXT,
+          lineHeight: 1.5,
+        }}>
+          <span style={{ fontWeight: 600 }}>Partial Deep AI result.</span>{' '}
+          {partialChunkFailure.failed.length === 1
+            ? `One review chunk failed (${partialChunkFailure.failed[0].name}); the other two completed.`
+            : `${partialChunkFailure.failed.length} review chunks failed (${partialChunkFailure.failed.map((f) => f.name).join('; ')}); the remaining chunks completed.`}
+          {' '}Click <strong>Re-run Deep AI Review</strong> to retry the full scan.
+        </div>
+      )}
+
       {/* Filter toolbar */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16,

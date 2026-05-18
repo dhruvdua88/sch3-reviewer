@@ -10,7 +10,10 @@ import {
 } from 'lucide-react';
 
 import { COLORS, FONTS, SEVERITY, BTN_PRIMARY } from '../styles/tokens.js';
-import { SCH3_PROMPT, CARO_PROMPT, NOTES_DRAFT_PROMPT } from '../data/prompts.js';
+import {
+  SCH3_PROMPT_CHUNK_A, SCH3_PROMPT_CHUNK_B, SCH3_PROMPT_CHUNK_C,
+  CARO_PROMPT, NOTES_DRAFT_PROMPT,
+} from '../data/prompts.js';
 import { STANDARD_CARO_REMARKS }                 from '../data/caroRemarks.js';
 import { DEFAULT_REPORT_FIELDS }                 from '../data/reportDefaults.js';
 import { extractPdfToMarkdown }                  from '../lib/pdfExtract.js';
@@ -164,6 +167,10 @@ export function ScheduleIIIReviewer() {
   const [gateSkipped, setGateSkipped] = useState(false);
   // Tracks last-analysis source so the Done screen can show appropriate CTAs
   const [analysisSource, setAnalysisSource] = useState(null);  // 'rule' | 'rule+ai'
+  // Partial-failure record when one or two SCH3 chunks reject during a parallel
+  // Deep AI run. Shape: { failed: [{label, message}], succeeded: ['A','B','C'] } | null.
+  // Drives the warning banner on the issues tab.
+  const [partialChunkFailure, setPartialChunkFailure] = useState(null);
 
   // ── Upload phase ──
   const [file,     setFile]     = useState(null);
@@ -462,36 +469,107 @@ export function ScheduleIIIReviewer() {
 
     try {
       // ── Phase 1: Schedule III ──────────────────────────────────────────
+      // The 73-test catalogue is split into three chunks (A: consistency +
+      // 2021 amendment, B: Sch III misc + AS compliance, C: Companies Act +
+      // P&L sub-classification) that we fire IN PARALLEL. This collapses
+      // wall-clock from ~200s sequential into ~max(chunk) and keeps each
+      // chunk safely under the 120s default timeout. A chunk that rejects
+      // does not abort the others — we ship the issues from whichever
+      // chunks resolved and surface a banner via partialChunkFailure.
       setPhase('analyzing-sch3');
       setTokenUsage({ sch3: null, caro: null });
       setAnalysisStartedAt(Date.now());
       setFirstTokenReceivedAt(null);
+      setPartialChunkFailure(null);
 
-      const rawSch3 = await callDeepSeek({
+      const sch3SystemPrompt = 'You are a senior Chartered Accountant reviewing Indian company financial statements for Schedule III compliance. Quote verbatim from the source document where you cite figures or disclosure text. Do not paraphrase. Do not infer facts that are not present in the document. If a required disclosure is absent, say so explicitly with the phrase "Disclosure not located in the document".';
+
+      // Accumulator for per-chunk token usage. We sum on each onUsage call so
+      // the header reflects the running total as chunks complete.
+      const chunkUsage = { input_tokens: 0, output_tokens: 0 };
+      const addUsage = (u) => {
+        chunkUsage.input_tokens  += (u?.input_tokens  || 0);
+        chunkUsage.output_tokens += (u?.output_tokens || 0);
+        setTokenUsage((prev) => ({ ...prev, sch3: { ...chunkUsage } }));
+      };
+      // First chunk to write any tokens flips the firstTokenReceivedAt clock,
+      // which the progress UI uses to switch from the time-based ramp to a
+      // "model is writing the response" indicator.
+      let firstTokenFlagged = false;
+      const markFirstToken = () => {
+        if (firstTokenFlagged) return;
+        firstTokenFlagged = true;
+        setFirstTokenReceivedAt(Date.now());
+      };
+
+      const chunks = [
+        { label: 'A', name: 'Consistency + 2021 amendment',          prompt: SCH3_PROMPT_CHUNK_A },
+        { label: 'B', name: 'Sch III misc + AS compliance',          prompt: SCH3_PROMPT_CHUNK_B },
+        { label: 'C', name: 'Companies Act + P&L sub-classification', prompt: SCH3_PROMPT_CHUNK_C },
+      ];
+
+      const settled = await Promise.allSettled(chunks.map((c) => callDeepSeek({
         apiKey,
         model:        selectedModel,
-        systemPrompt: 'You are a senior Chartered Accountant reviewing Indian company financial statements for Schedule III compliance. Quote verbatim from the source document where you cite figures or disclosure text. Do not paraphrase. Do not infer facts that are not present in the document. If a required disclosure is absent, say so explicitly with the phrase "Disclosure not located in the document".',
-        userPrompt:   `${mdText}\n\n${SCH3_PROMPT}`,
+        systemPrompt: sch3SystemPrompt,
+        userPrompt:   `${mdText}\n\n${c.prompt}`,
         signal:       ctrl.signal,
         temperature:  0.0,
         top_p:        0.1,
-        timeoutMs:    240_000,    // 4-minute ceiling for the expanded 73-test SCH3 run
-        onUsage:      (u) => setTokenUsage((prev) => ({ ...prev, sch3: u })),
-        onFirstToken: () => setFirstTokenReceivedAt(Date.now()),
+        timeoutMs:    120_000,    // per chunk; ~⅓ the original workload, so 120s leaves 2× slack
+        onUsage:      addUsage,
+        onFirstToken: markFirstToken,
+      })));
+
+      // If the user cancelled, any chunk's rejection will be an AbortError —
+      // bubble out to the outer catch so the existing cancel handling applies.
+      if (ctrl.signal.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+
+      const failed = [];
+      const merged = { company: null, keyMetrics: null, scheduleIIIIssues: [] };
+      const seenIds = new Set();
+      settled.forEach((res, i) => {
+        const meta = chunks[i];
+        if (res.status === 'rejected') {
+          failed.push({ label: meta.label, name: meta.name, message: res.reason?.message || String(res.reason) });
+          return;
+        }
+        const v = res.value || {};
+        if (!merged.company    && v.company)    merged.company    = v.company;
+        if (!merged.keyMetrics && v.keyMetrics) merged.keyMetrics = v.keyMetrics;
+        for (const iss of (v.scheduleIIIIssues || [])) {
+          // Dedupe by test ID — keep the first occurrence. mergeAnalyses
+          // assumes unique IDs in the AI array; this satisfies that contract
+          // even when the same test fires in two chunks (which shouldn't
+          // happen given the scope notice, but is cheap to defend against).
+          if (iss?.id && seenIds.has(iss.id)) continue;
+          if (iss?.id) seenIds.add(iss.id);
+          merged.scheduleIIIIssues.push(iss);
+        }
       });
-      // Sanity-filter the AI response.
-      const sanitised = sanitiseSch3Response(rawSch3);
+
+      // All three chunks rejected → re-throw the first error so the existing
+      // catch surfaces the error screen.
+      if (failed.length === chunks.length) {
+        throw settled[0].reason;
+      }
+
+      // Sanity-filter the (possibly partial) AI response.
+      const sanitised = sanitiseSch3Response(merged);
 
       // Run the deterministic rule engine and merge with the AI findings.
       // Rule-engine catches arithmetic/tie-out issues the AI tends to miss;
       // AI catches semantic/judgement issues the rule engine can't reason about.
       const ruleResult = runRuleEngine(mdText);
-      const merged    = mergeAnalyses(ruleResult, sanitised);
+      const mergedFinal = mergeAnalyses(ruleResult, sanitised);
 
       // Stamp source-page anchors on the merged issue list.
-      const sch3 = anchorIssuesToPages(merged, pdfPages);
+      const sch3 = anchorIssuesToPages(mergedFinal, pdfPages);
       setAnalysis(sch3);
       setAnalysisSource('rule+ai');
+      setPartialChunkFailure(failed.length > 0 ? { failed } : null);
 
       // ── Phase 2: CARO (optional) ───────────────────────────────────────
       let finalCaro = null;
@@ -825,6 +903,7 @@ INSTRUCTIONS
     setIssueStates({}); setCurrentEngagementId(null);
     setAnalysis(null); setCaro(null);
     setAnalysisSource(null);
+    setPartialChunkFailure(null);
     setPhase('upload');
     setFileError(''); setExtractError(''); setAnalysisError('');
     setReportFields({ ...DEFAULT_REPORT_FIELDS });
@@ -1087,6 +1166,7 @@ INSTRUCTIONS
                     onSetStatus={handleSetIssueStatus}
                     onSetNote={handleSetIssueNote}
                     onViewSource={(it) => setSourceModalIssue(it)}
+                    partialChunkFailure={partialChunkFailure}
                   />
                 )}
               </div>

@@ -17,12 +17,12 @@ import { X, Brain, ShieldCheck } from 'lucide-react';
 import { COLORS, FONTS, BTN_GHOST } from '../styles/tokens.js';
 
 // Estimated durations per phase, by model. Tweak after observing real runs.
-// SCH3 estimates were lifted after expanding the prompt from 46 to 73 tests
-// (Mar-2026); the 240 s timeout still leaves comfortable headroom.
+// SCH3 runs three parallel chunks (A/B/C), so wall-clock is roughly the
+// slowest single chunk — ~110 s on pro, ~60 s on flash — not the sum.
 const PHASE_DURATIONS = {
   'analyzing-sch3': {
-    'deepseek-v4-pro':   75_000,
-    'deepseek-v4-flash': 45_000,
+    'deepseek-v4-pro':   110_000,
+    'deepseek-v4-flash': 60_000,
   },
   'analyzing-caro': {
     'deepseek-v4-pro':   25_000,
@@ -31,14 +31,15 @@ const PHASE_DURATIONS = {
 };
 
 // Stage labels: [endTimeMs, label]. The last entry is shown for any time beyond it.
-// Stretched to match the 73-test prompt; ICAI Guidance Note checks are explicit.
+// Stretched past the original 70s cap so the cycling labels keep moving while
+// the slowest of the three parallel chunks finishes on dense PDFs.
 const SCH3_STAGES = [
-  [8_000,  'Parsing the extracted statements…'],
-  [18_000, 'Identifying balance sheet structure and key metrics…'],
-  [32_000, 'Cross-checking the 2021 amendment regulatory disclosures…'],
-  [45_000, 'Verifying share capital, borrowings and ageing schedules…'],
-  [58_000, 'Evaluating AS compliance and CFS classification quality…'],
-  [70_000, 'Reviewing P&L sub-classification and statutory disclosures…'],
+  [10_000,  'Parsing the extracted statements…'],
+  [22_000,  'Identifying balance sheet structure and key metrics…'],
+  [40_000,  'Running parallel checks: consistency + 2021 amendment + AS compliance…'],
+  [60_000,  'Verifying share capital, borrowings and ageing schedules…'],
+  [85_000,  'Evaluating AS compliance and CFS classification quality…'],
+  [110_000, 'Reviewing P&L sub-classification and statutory disclosures…'],
   [Infinity, 'Drafting findings and finalising JSON…'],
 ];
 
@@ -151,7 +152,7 @@ export function AnalyzingProgress({
         <PhaseStep
           icon={Brain}
           label="Schedule III"
-          sublabel="46-test substantive checklist"
+          sublabel="73-test substantive checklist (3 parallel)"
           active={!isCaro}
           done={isCaro}
         />
