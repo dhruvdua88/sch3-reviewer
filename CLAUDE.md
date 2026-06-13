@@ -29,7 +29,7 @@ The user is **Dhruv Dua** of Dhruv Dua & Co. Chartered Accountants (FRN 028145N)
 | Fonts | Fraunces (serif) · IBM Plex Sans (body) · JetBrains Mono (mono) — Google Fonts |
 | Icons | `lucide-react` v0.383 |
 | PDF | `pdfjs-dist` v4 (worker bundled via Vite `?url` import) |
-| Excel | `exceljs` 4.4 (lazy-loaded from cdnjs at export time) |
+| Excel | `exceljs` 4.4 (lazy-loaded from cdnjs) — used for BOTH the working-paper export AND reading uploaded .xlsx workbooks |
 | OCR (opt-in) | `tesseract.js` 5.1 (lazy-loaded from jsdelivr at user click) |
 | AI | DeepSeek v4 Pro / Flash via the OpenAI-compatible endpoint |
 | Storage | `localStorage` only — no backend, no DB, no analytics |
@@ -62,6 +62,7 @@ sch3-reviewer/
     │   └── ruleDefinitions.js ← Rule-engine keyword test catalogue
     ├── lib/
     │   ├── pdfExtract.js      ← pdfjs → markdown + per-page text
+    │   ├── excelExtract.js    ← ExcelJS (.xlsx/.xlsm) → SAME markdown shape + structured grid
     │   ├── ocrPdf.js          ← Tesseract.js OCR fallback for scanned PDFs
     │   ├── deepseek.js        ← API wrapper: retry, cache, timeout, streaming
     │   ├── caroApplicability.js ← Client-side CARO Para 1(2)(iv) arithmetic
@@ -137,7 +138,8 @@ Don't introduce parallel shapes. If you add a field, follow the existing naming.
 
 ## Recent decisions (chronological — most recent first)
 
-- **Rule engine + soft-gate (latest):** `Quick Review` always runs deterministic checks first; `Deep AI Review` layers DeepSeek on top with `mergeAnalyses`. Source pills on issue cards. 25 deterministic checks including notes-to-face tie-out, within-note arithmetic, opening = prior-year closing.
+- **Excel ingest (latest):** uploads now accept `.xlsx`/`.xlsm` alongside PDF. `lib/excelExtract.js` reads the workbook with ExcelJS (lazy CDN, no new bundle dep) and normalises every sheet into the SAME `<label> ... <number>` markdown line-shape that `pdfExtract.js` emits — so `metricsExtract`, the rule engine, and the AI prompt are all format-agnostic and unchanged. Numbers come from cells (no OCR/layout guessing), negatives rendered bracketed for `parseIndianAmount`, dates as "dd Month yyyy". Also returns a structured `grid` (cells per sheet) for future exact footing checks. Legacy binary `.xls`/`.ods` rejected with a "save as .xlsx" message. `pdfMeta.kind` is `'pdf'|'excel'`.
+- **Rule engine + soft-gate:** `Quick Review` always runs deterministic checks first; `Deep AI Review` layers DeepSeek on top with `mergeAnalyses`. Source pills on issue cards. 25 deterministic checks including notes-to-face tie-out, within-note arithmetic, opening = prior-year closing.
 - **SCH3 prompt expanded 46 → 73 tests** across A (consistency incl. T70-T73 tie-out checks), B (2021 amendment), C (other Sch III incl. share capital block), D (AS compliance), E (Companies Act), F (P&L disclosure). Output cap at 60 issues per call.
 - **MCA Verification tab** added to the Excel export — 11-row checklist for reviewer to cross-check books vs MCA portal.
 - **Notes drafter rewritten** as a single comprehensive "Significant Accounting Policies" note (Note 2). Editable per sub-policy. Word export `downloadAccountingPoliciesWord`.

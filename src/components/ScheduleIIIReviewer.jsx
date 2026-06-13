@@ -14,6 +14,7 @@ import { SCH3_PROMPT, CARO_PROMPT, NOTES_DRAFT_PROMPT } from '../data/prompts.js
 import { STANDARD_CARO_REMARKS }                 from '../data/caroRemarks.js';
 import { DEFAULT_REPORT_FIELDS }                 from '../data/reportDefaults.js';
 import { extractPdfToMarkdown }                  from '../lib/pdfExtract.js';
+import { extractExcelToMarkdown, isExcelFile }   from '../lib/excelExtract.js';
 import { ocrPdfToMarkdown }                      from '../lib/ocrPdf.js';
 import { callDeepSeek, chatDeepSeek, AuthError, RateLimitError, ApiError } from '../lib/deepseek.js';
 import { generateReport, downloadAsWord, downloadAccountingPoliciesWord } from '../lib/docExport.js';
@@ -277,12 +278,19 @@ export function ScheduleIIIReviewer() {
   // ════════════════════════════════════════════════════
   const handleFile = useCallback((f) => {
     if (!f) return;
-    if (f.type !== 'application/pdf') {
-      setFileError('Please upload a PDF file (.pdf)');
+    const isPdf   = f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '');
+    const isExcel = isExcelFile(f);
+    // Reject legacy .xls / .ods explicitly — ExcelJS reads .xlsx / .xlsm only.
+    if (!isPdf && !isExcel) {
+      if (/\.(xls|ods|csv)$/i.test(f.name || '')) {
+        setFileError('Legacy .xls / .ods / .csv is not supported. Please re-save as .xlsx and retry.');
+      } else {
+        setFileError('Please upload a PDF (.pdf) or an Excel workbook (.xlsx).');
+      }
       return;
     }
     if (f.size > 30 * 1024 * 1024) {
-      setFileError('PDF too large (> 30 MB). Please compress and retry.');
+      setFileError('File too large (> 30 MB). Please compress and retry.');
       return;
     }
     setFile(f);
@@ -330,20 +338,30 @@ export function ScheduleIIIReviewer() {
     if (!f) return;
     setPhase('extracting');
     setExtractError('');
+    const excel = isExcelFile(f);
     try {
       const buf = await f.arrayBuffer();
-      const result = await extractPdfToMarkdown(buf, {
-        onProgress: (pct) => {
-          // could wire to a progress bar later
-        },
-      });
+      // Excel and PDF both normalise to the same markdown shape, so everything
+      // downstream (metricsExtract, rule engine, AI prompt) is format-agnostic.
+      const result = excel
+        ? await extractExcelToMarkdown(buf, { onProgress: () => {} })
+        : await extractPdfToMarkdown(buf,   { onProgress: () => {} });
       setMarkdown(result.markdown);
-      setPdfMeta({ pageCount: result.pageCount, charCount: result.charCount, looksScanned: result.looksScanned });
+      setPdfMeta({
+        kind:         excel ? 'excel' : 'pdf',
+        pageCount:    result.pageCount,    // sheets for Excel, pages for PDF
+        charCount:    result.charCount,
+        looksScanned: result.looksScanned, // always false for Excel — no OCR path
+        grid:         result.grid || null, // structured cells (Excel only)
+      });
       setPdfPages(result.pages || []);
       setPhase('preview');
     } catch (err) {
-      console.error('PDF extract failed:', err);
-      setExtractError(err.message || 'Failed to extract text from PDF.');
+      console.error(`${excel ? 'Excel' : 'PDF'} extract failed:`, err);
+      setExtractError(
+        err.message ||
+        (excel ? 'Failed to read the Excel workbook.' : 'Failed to extract text from PDF.')
+      );
       setPhase('upload');
     }
   };

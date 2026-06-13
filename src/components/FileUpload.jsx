@@ -1,5 +1,6 @@
 // ============ FILE UPLOAD ============
-// Drag-drop + file picker. Validates PDF, < 30MB.
+// Drag-drop + file picker. Accepts a PDF or an Excel workbook (.xlsx/.xlsm), < 30MB.
+// Validation (type + size) lives in the orchestrator's handleFile.
 
 import React, { useCallback, useRef } from 'react';
 import { Upload, AlertCircle, Layers, ShieldCheck, FileSpreadsheet, Sparkles } from 'lucide-react';
@@ -41,7 +42,7 @@ export function FileUpload({ file, dragOver, error, onFile, onDragOver, onDragLe
         onClick={() => fileRef.current?.click()}
         role="button"
         tabIndex={0}
-        aria-label="Upload PDF — click or drag and drop"
+        aria-label="Upload PDF or Excel — click or drag and drop"
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && fileRef.current?.click()}
         style={{
           background: dragOver ? COLORS.BG_CREAM : COLORS.BG_CARD,
@@ -56,7 +57,7 @@ export function FileUpload({ file, dragOver, error, onFile, onDragOver, onDragLe
           outline: 'none',
         }}
       >
-        <input ref={fileRef} type="file" accept="application/pdf" onChange={handlePick} style={{ display: 'none' }} />
+        <input ref={fileRef} type="file" accept="application/pdf,.xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={handlePick} style={{ display: 'none' }} />
         <div style={{
           width: 64, height: 64, borderRadius: '50%', background: COLORS.PRIMARY,
           display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px',
@@ -64,12 +65,12 @@ export function FileUpload({ file, dragOver, error, onFile, onDragOver, onDragLe
           <Upload size={26} color="#faf6ee" strokeWidth={1.5} />
         </div>
         <div className="serif" style={{ fontSize: 22, fontWeight: 500, marginBottom: 6, color: COLORS.TEXT }}>
-          {file ? file.name : 'Drop the PDF here'}
+          {file ? file.name : 'Drop a PDF or Excel here'}
         </div>
         <div style={{ color: COLORS.TEXT_MUTED, fontSize: 13 }}>
           {file
             ? `${(file.size / 1024).toFixed(0)} KB · ready to extract`
-            : 'or click to browse · Max 30 MB · PDF only'}
+            : 'or click to browse · Max 30 MB · PDF or Excel (.xlsx)'}
         </div>
       </div>
 
