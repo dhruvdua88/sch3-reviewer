@@ -655,11 +655,11 @@ export function ScheduleIIIReviewer() {
       const result = await callDeepSeek({
         apiKey,
         model:        selectedModel,
-        systemPrompt: 'You are a senior Indian Chartered Accountant drafting the "Significant Accounting Policies" note for an Indian private/unlisted company\'s Schedule III Division I financial statements. Use canonical Indian audit-firm phrasing. Cite the relevant Accounting Standard (AS) where material. Use [BRACKETED CAPS] placeholders only where a true preparer choice is required (e.g., depreciation method WDV/SLM, inventory cost formula, useful-life override).',
+        systemPrompt: 'You are a senior Indian Chartered Accountant drafting the "Significant Accounting Policies" note for an Indian private/unlisted company\'s Schedule III Division I financial statements. Draft ONLY policies governing the recognition and measurement of BALANCE-SHEET items (assets, liabilities, equity) — this is a policies note, not a disclosures note. Exclude all P&L-only and disclosure-only policies (revenue recognition, EPS, segment, cash-flow statement, related-party disclosure, CSR). Use canonical Indian audit-firm phrasing, cite the relevant Accounting Standard (AS), and use [BRACKETED CAPS] placeholders only where a true preparer choice is required (depreciation method WDV/SLM, inventory cost formula, useful-life override).',
         userPrompt:   NOTES_DRAFT_PROMPT(analysis.scheduleIIIIssues || [], analysis.company, analysis.keyMetrics),
         signal:       ctrl.signal,
-        temperature:  0.1,
-        top_p:        0.2,
+        temperature:  0.0,
+        top_p:        0.1,
       });
 
       const policy = result?.accountingPolicies;

@@ -431,101 +431,112 @@ FINAL SELF-REVIEW PASS — perform before returning the JSON:
 ════════════════════════════════════════════`;
 
 // ============================================================
-// NOTES_DRAFT_PROMPT — produce ONE comprehensive "Significant Accounting
-// Policies" note (Note 2) tailored to the engagement. The note walks
-// every line that the balance sheet / P&L of this company actually carries
-// (driven by keyMetrics + the issues list, so we know what's present and
-// what's missing). Output is a single block of Schedule III-compliant prose
-// that the reviewer can edit before pasting into the financial statements.
+// NOTES_DRAFT_PROMPT — produce ONE "Significant Accounting Policies" note
+// (Note 2) covering ONLY the policies relevant to the BALANCE SHEET, per
+// ICAI best practice (Division I / AS basis).
+//
+// Design (the optimisation):
+//   - A DETERMINISTIC allow-list is computed in JS from keyMetrics, so the
+//     model only drafts policies for line items the balance sheet actually
+//     carries (PPE/inventory/receivables/borrowings gated on their figures).
+//     This keeps the output tight, on-target and fast — no scanning a fixed
+//     20-policy menu, no "Not applicable" filler rows.
+//   - P&L / pure-disclosure policies are EXCLUDED by construction (revenue
+//     recognition, other income, EPS, segment, cash-flow statement,
+//     related-party disclosure, CSR, prior-period).
+//   - Recognition + measurement focus (what shapes the carrying amount), not
+//     disclosure narrative.
+// Output JSON shape is unchanged so SuggestedNotesTab + docExport are untouched.
 // ============================================================
 export const NOTES_DRAFT_PROMPT = (issues, company, metrics) => {
-  const issueLines = (issues || []).map((iss, idx) =>
-    `${idx + 1}. [${iss.id || '—'}] ${iss.title}\n` +
-    `   Observation: ${iss.observation}\n` +
-    (iss.noteRef ? `   Reference: ${iss.noteRef}\n` : '') +
-    (iss.recommendation ? `   Recommendation: ${iss.recommendation}\n` : '')
-  ).join('\n');
+  const m = metrics || {};
+  const has = (v) => typeof v === 'number' && Math.abs(v) > 0;
+  const hasPPE  = has(m.fixedAssetsLakhs);
+  const hasInv  = has(m.inventoriesLakhs);
+  const hasTR   = has(m.tradeReceivablesLakhs);
+  const hasBorr = has(m.totalBorrowingsLakhs);
 
-  return `You are a senior Indian Chartered Accountant drafting the "Significant Accounting Policies" note (typically Note 2) to be inserted into the Notes to the Financial Statements of ${company?.name || 'the Company'} (CIN: ${company?.cin || '—'}, FY ending ${company?.yearEnd || '—'}, nature: ${company?.natureOfBusiness || '—'}).
+  // ── Deterministic allow-list — balance-sheet policies only ──
+  // MANDATORY: always drafted (apply to essentially every Indian company FS).
+  const mandatory = [
+    'Basis of preparation (Indian GAAP / AS notified u/s 133; accrual; historical cost; going concern)',
+    'Use of estimates and judgements',
+    'Current vs non-current classification and operating cycle',
+  ];
+  if (hasPPE) {
+    mandatory.push('Property, Plant and Equipment and depreciation (AS-10; useful lives per Schedule II, Companies Act 2013)');
+    mandatory.push('Capital work-in-progress');
+    mandatory.push('Impairment of (non-financial) assets (AS-28)');
+  }
+  if (hasInv)            mandatory.push('Inventories (AS-2; lower of cost and net realisable value; state the cost formula)');
+  if (hasTR)            mandatory.push('Trade receivables and provision for doubtful debts and advances');
+  if (hasBorr && hasPPE) mandatory.push('Borrowing costs (AS-16; capitalisation to qualifying assets, else expensed)');
+  mandatory.push('Cash and cash equivalents (AS-3 definition)');
+  mandatory.push('Employee benefit obligations (AS-15 Revised; defined contribution; defined benefit/gratuity on actuarial valuation; leave benefits)');
+  mandatory.push('Provisions, contingent liabilities and contingent assets (AS-29) — recognition basis');
+  mandatory.push('Taxes on income — current tax and deferred tax (AS-22; "virtual certainty supported by convincing evidence" for DTA on carry-forward losses / unabsorbed depreciation)');
 
-CONTEXT — engagement key facts:
-- Revenue from operations: Rs ${(metrics?.revenueLakhs ?? 0).toFixed(2)} lakhs
-- Profit before tax: Rs ${(metrics?.profitBeforeTaxLakhs ?? 0).toFixed(2)} lakhs
-- Total borrowings: Rs ${(metrics?.totalBorrowingsLakhs ?? 0).toFixed(2)} lakhs
-- Paid-up capital + Reserves: Rs ${((metrics?.paidUpCapitalLakhs ?? 0) + (metrics?.reservesLakhs ?? 0)).toFixed(2)} lakhs
-- Trade receivables: Rs ${(metrics?.tradeReceivablesLakhs ?? 0).toFixed(2)} lakhs
-- Fixed assets / PPE: Rs ${(metrics?.fixedAssetsLakhs ?? 0).toFixed(2)} lakhs
-- Total assets: Rs ${(metrics?.totalAssetsLakhs ?? 0).toFixed(2)} lakhs
-- Net worth: Rs ${(metrics?.netWorthLakhs ?? 0).toFixed(2)} lakhs
+  // CONDITIONAL: draft ONLY if such a balance exists in the FS (no metric to
+  // gate on these, so the model judges from the document). NEVER write
+  // "Not applicable" — simply omit the sub-policy if absent.
+  const ifPresent = [
+    'Intangible assets and amortisation (AS-26)',
+    'Investments — current and long-term (AS-13; long-term at cost less other-than-temporary diminution; current at lower of cost or fair value)',
+    'Leases (AS-19) — leased assets / lease obligations',
+    'Foreign currency monetary items — restatement at closing rate (AS-11)',
+    'Government grants related to assets (AS-12)',
+  ];
 
-ISSUES FLAGGED IN THE SCHEDULE III REVIEW (use these to infer which policies are likely missing or weakest in the existing financial statements — give those sub-headings extra rigor):
-${issueLines || '(no specific issues flagged — produce a complete standard policy note)'}
+  const mandatoryList = mandatory.map((p, i) => `  ${i + 1}. ${p}`).join('\n');
+  const ifPresentList = ifPresent.map((p) => `  - ${p}`).join('\n');
 
-TASK
-Produce a single comprehensive "Significant Accounting Policies" note suitable for the Notes to the Financial Statements of an Indian private/unlisted company reporting under Schedule III, Division I (Accounting Standards basis). Walk every balance sheet head and P&L head that is likely relevant to this company based on the key facts above. For each sub-policy, give a clean professional draft a CA in India would actually publish, citing the relevant AS where the AS materially shapes the policy. The output is ONE comprehensive note, NOT several separate notes.
+  // Trimmed issues hint — titles only, capped — to flag policy areas the review
+  // found weak. Kept light to save tokens; policies are NOT disclosure-driven.
+  const issueHint = (issues || [])
+    .map((iss) => (iss?.title || '').trim())
+    .filter(Boolean)
+    .slice(0, 12)
+    .map((t) => `  - ${t}`)
+    .join('\n');
 
-SUB-POLICIES TO COVER (omit any that are clearly inapplicable to this company; expand the rest):
+  return `You are a senior Indian Chartered Accountant drafting the "Significant Accounting Policies" note (Note 2) for ${company?.name || 'the Company'} (CIN: ${company?.cin || '—'}, FY ending ${company?.yearEnd || '—'}), reporting under Schedule III, Division I (Accounting Standards basis).
 
-  2.1 Basis of preparation
-       (Compliance with applicable AS notified under Section 133, historical-cost convention, accrual basis, going concern.)
-  2.2 Use of estimates (AS-1 / general)
-  2.3 Property, Plant & Equipment (AS-10)
-       — recognition, initial measurement, subsequent measurement, depreciation method
-         (WDV / SLM) and useful lives as per Schedule II of the Companies Act 2013, derecognition.
-  2.4 Capital work-in-progress
-  2.5 Intangible assets (AS-26) — applicable only if relevant.
-  2.6 Impairment of assets (AS-28)
-  2.7 Inventories (AS-2)
-       — only if inventories > 0; specify the cost formula (FIFO / Weighted Avg) and basis "lower of cost and net realisable value".
-  2.8 Investments (AS-13)
-       — current at lower of cost or fair value; long-term at cost less other-than-temporary diminution.
-  2.9 Cash and cash equivalents (AS-3)
-       — definition aligned to AS-3.
-  2.10 Revenue recognition (AS-9)
-       — split by income stream (sale of goods, services, interest, dividend, royalty, etc.).
-  2.11 Foreign currency transactions (AS-11)
-       — initial recognition, monetary items at closing rate, exchange differences treatment.
-  2.12 Employee benefits (AS-15 Revised)
-       — short-term benefits, defined contribution plans (PF, ESI, NPS), defined benefit (gratuity) actuarial valuation, leave encashment policy.
-  2.13 Borrowing costs (AS-16)
-       — only if PPE additions / CWIP exist.
-  2.14 Leases (AS-19)
-       — distinguish operating vs finance lease accounting.
-  2.15 Earnings per share (AS-20)
-  2.16 Taxes on income (AS-22)
-       — current tax computation basis; deferred tax recognition, including the "virtual certainty supported by convincing evidence" standard for DTA on carry-forward losses / unabsorbed depreciation.
-  2.17 Provisions, contingent liabilities and contingent assets (AS-29)
-  2.18 Cash flow statement (AS-3) — only if CFS is presented.
-  2.19 Related party transactions (AS-18) — disclosure policy.
-  2.20 Segment reporting (AS-17) — only if multiple segments.
+SCOPE — BALANCE SHEET POLICIES ONLY.
+Draft ONLY accounting policies that govern the recognition and MEASUREMENT of balance-sheet items (assets, liabilities, equity). This is a policies note, NOT a disclosures note.
+EXCLUDE entirely — do not draft these: revenue recognition (AS-9), other income, earnings per share (AS-20), segment reporting (AS-17), the cash flow statement (AS-3 statement), related-party "disclosure" policy (AS-18), CSR, and prior-period items. (Cash and cash equivalents as a balance-sheet line IS in scope; the cash-flow statement is not.)
 
-DRAFTING RULES
-- The output is ONE single note containing all sub-policies under sub-headings 2.1, 2.2, 2.3 … in sequence.
-- Use professional Indian audit-firm phrasing. Avoid hedging like "may", "could be" — write declarative policy statements.
-- Cite the AS number in brackets at the end of each sub-heading: e.g., "2.10 Revenue recognition (AS-9)".
-- Where a specific value/policy choice depends on the company (depreciation method, cost formula for inventory, useful lives override of Schedule II), use a placeholder in [BRACKETED CAPS] for the preparer to fill in. Examples: [WDV / SLM — strike one], [FIFO / Weighted Average — specify], [USEFUL_LIVES_AS_PER_SCH_II_OR_OVERRIDE].
-- For sub-policies that are clearly NOT applicable to this company (e.g., intangibles when no intangibles exist; segment reporting for a single-segment private co), include the sub-heading and say "Not applicable to the Company during the year."
-- Do NOT invent specific rupee figures — those come from the rest of the financial statements.
-- Do NOT include the company name as a header; the preparer will paste this under "Note 2 — Significant Accounting Policies" themselves.
+MANDATORY sub-policies — draft EVERY one of these, in this order:
+${mandatoryList}
+
+CONDITIONAL sub-policies — draft ONLY where the financial statements actually carry such a balance/transaction; otherwise OMIT the sub-policy entirely. Do NOT write "Not applicable":
+${ifPresentList}
+${issueHint ? `\nSchedule III review flagged these areas as weak — give the corresponding policy extra rigor where it is in scope:\n${issueHint}\n` : ''}
+DRAFTING RULES (ICAI best practice)
+- ONE note, sub-headings numbered 2.1, 2.2, 2.3 … in sequence; the FIRST sub-policy is "2.1 Basis of preparation".
+- Cite the governing AS in brackets at the end of the heading, e.g. "2.4 Impairment of assets (AS-28)".
+- Declarative policy prose an Indian audit firm would publish. No hedging ("may", "could").
+- Recognition + measurement focus (what determines the carrying amount), not disclosure narrative.
+- Use a [BRACKETED CAPS] placeholder ONLY where a genuine preparer choice is required: depreciation method [WDV / SLM — strike one], inventory cost formula [FIFO / WEIGHTED AVERAGE — specify], any [USEFUL_LIVES_OVERRIDE_PER_SCH_II].
+- Do NOT invent rupee figures. Do NOT add a company-name header.
+- Do NOT include any P&L-only or disclosure-only policy, even if it seems standard.
 
 OUTPUT FORMAT — return ONLY valid JSON (no markdown fences, no commentary):
 
 {
   "accountingPolicies": {
     "noteTitle": "Note 2 — Significant Accounting Policies",
-    "introText": "The significant accounting policies adopted by the Company in the preparation and presentation of these financial statements are set out below. These policies have been consistently applied to all the years presented unless otherwise stated.",
+    "introText": "The significant accounting policies relating to the recognition and measurement of assets, liabilities and equity adopted by the Company in the preparation of these financial statements are set out below. These policies have been consistently applied to all periods presented unless otherwise stated.",
     "subPolicies": [
       {
         "heading": "2.1 Basis of preparation",
-        "body":    "The financial statements of the Company have been prepared in accordance with the Generally Accepted Accounting Principles in India (Indian GAAP) to comply with the Accounting Standards specified under Section 133 of the Companies Act, 2013, read with Rule 7 of the Companies (Accounts) Rules, 2014 (as amended) and the relevant provisions of the Companies Act, 2013. The financial statements have been prepared on accrual basis under the historical cost convention. The accounting policies adopted in the preparation of the financial statements are consistent with those followed in the previous year, except as disclosed otherwise. The Company has ascertained its operating cycle as 12 months for the purpose of current / non-current classification of assets and liabilities."
+        "body":    "The financial statements have been prepared in accordance with the Generally Accepted Accounting Principles in India (Indian GAAP) to comply with the Accounting Standards specified under Section 133 of the Companies Act, 2013, read with Rule 7 of the Companies (Accounts) Rules, 2014, and the relevant provisions of the Companies Act, 2013. They have been prepared on an accrual basis under the historical cost convention and on a going-concern basis. The Company has ascertained its operating cycle as 12 months for the purpose of current / non-current classification of assets and liabilities."
       },
-      { "heading": "2.2 Use of estimates", "body": "..." },
-      { "heading": "2.3 Property, Plant and Equipment (AS-10)", "body": "..." }
+      { "heading": "2.2 Use of estimates", "body": "..." }
     ]
   }
 }
 
-Return up to 20 sub-policies. Each body should be a complete prose paragraph of 40–120 words. No \\n needed inside body — use a single string.`;
+Each body is one prose paragraph of 40–110 words. No "\\n" inside a body. Emit ONLY the mandatory list plus any in-scope conditional policies — nothing else.`;
 };
 
 // CARO_PROMPT is a function that embeds key metrics into the prompt.

@@ -1,7 +1,8 @@
 // ============ SUGGESTED ACCOUNTING POLICIES TAB ============
-// Drafts ONE comprehensive "Significant Accounting Policies" note
-// (Note 2) — the reviewer can edit each sub-policy in place and download
-// the result as a Word document for the preparer to paste into the FS.
+// Drafts ONE "Significant Accounting Policies" note (Note 2) covering only the
+// policies relevant to the BALANCE SHEET (recognition + measurement of assets,
+// liabilities, equity) — the reviewer can edit each sub-policy in place and
+// download the result as a Word document for the preparer to paste into the FS.
 
 import React, { useEffect, useState } from 'react';
 import {
@@ -50,7 +51,7 @@ export function SuggestedNotesTab({
             Draft the Significant Accounting Policies note
           </h3>
           <p style={{ fontSize: 13, color: COLORS.TEXT_MUTED, maxWidth: 540, margin: '0 auto 22px', lineHeight: 1.55 }}>
-            One comprehensive "Note 2 — Significant Accounting Policies" drafted in standard Schedule III wording, walking every balance-sheet head relevant to this engagement (PPE, inventories, employee benefits, taxation, leases, EPS, etc.). Each sub-policy is editable before you download.
+            A "Note 2 — Significant Accounting Policies" drafted in standard ICAI wording, covering only the policies relevant to the balance sheet — recognition and measurement of assets, liabilities and equity (PPE &amp; depreciation, impairment, inventories, receivables, investments, employee-benefit obligations, provisions, taxation, borrowing costs, etc.). Only policies for line items this engagement actually carries are drafted; P&amp;L-only and disclosure-only policies are excluded. Each sub-policy is editable before you download.
           </p>
           {hasAnalysis && !generating && (
             <button
