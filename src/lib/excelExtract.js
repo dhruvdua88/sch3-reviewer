@@ -120,7 +120,9 @@ export async function extractExcelToMarkdown(arrayBuffer, { onProgress } = {}) {
   const worksheets = wb.worksheets || [];
   const total = worksheets.length;
 
-  let markdown = '';
+  // Accumulate into arrays and join once — per-row string += on the
+  // whole-workbook string is quadratic on 100k-row workbooks.
+  const mdParts = [];
   const pages = [];
   const grid = [];
 
@@ -130,8 +132,8 @@ export async function extractExcelToMarkdown(arrayBuffer, { onProgress } = {}) {
     const name = ws.name || `Sheet ${s}`;
     onProgress?.({ phase: 'extracting', current: s, total });
 
-    markdown += `\n---\n## Sheet: ${name}\n\n`;
-    let sheetText = '';
+    mdParts.push(`\n---\n## Sheet: ${name}\n\n`);
+    const sheetParts = [];
     const gridRows = [];
     let blankStreak = 0;
 
@@ -147,7 +149,7 @@ export async function extractExcelToMarkdown(arrayBuffer, { onProgress } = {}) {
       const isBlank = cells.length === 0 || cells.every((c) => c === '');
       if (isBlank) {
         // Collapse runs of blank rows into a single section break.
-        if (blankStreak === 0) { markdown += '\n'; sheetText += '\n'; }
+        if (blankStreak === 0) { mdParts.push('\n'); sheetParts.push('\n'); }
         blankStreak++;
         return;
       }
@@ -159,15 +161,15 @@ export async function extractExcelToMarkdown(arrayBuffer, { onProgress } = {}) {
       // cells with a small gap reproduces the single-line shape that
       // pdfExtract.js emits for a detected table row.
       const line = cells.join('   ').replace(/\s+$/g, '');
-      markdown += line + '\n';
-      sheetText += line + '\n';
+      mdParts.push(line + '\n');
+      sheetParts.push(line + '\n');
     });
 
-    pages.push({ pageNum: s, text: sheetText.trim() });
+    pages.push({ pageNum: s, text: sheetParts.join('').trim() });
     grid.push({ sheet: name, rows: gridRows });
   }
 
-  const finalMarkdown = markdown.trim();
+  const finalMarkdown = mdParts.join('').trim();
   return {
     markdown:    finalMarkdown,
     pageCount:   total,          // sheets, surfaced as "pages" in the existing UI

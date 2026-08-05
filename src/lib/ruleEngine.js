@@ -290,6 +290,16 @@ function checkNotesToFaceTieOut(markdown, metrics) {
     },
   ];
 
+  // metrics.faceValue is already in lakhs; the note figures are not normalised.
+  // Detect the document rounding ONCE — it was previously recomputed inside the
+  // loop, re-scanning the whole markdown up to 16 times per run.
+  // (We trust the same rounding applies throughout the PDF.)
+  const rounding = (markdown.match(/(rs?\.?|rupees?|amount(?:s)?)\s+in\s+crores?/i)) ? 100
+                 : (markdown.match(/(rs?\.?|rupees?|amount(?:s)?)\s+in\s+lakhs?/i)) ? 1
+                 : (markdown.match(/(rs?\.?|rupees?|amount(?:s)?)\s+in\s+millions?/i)) ? 10
+                 : (markdown.match(/(rs?\.?|rupees?|amount(?:s)?)\s+in\s+thousands?/i)) ? 0.01
+                 : 0.00001;
+
   for (const p of pairs) {
     if (p.faceValue == null) continue;
     const m = markdown.match(p.noteRe);
@@ -297,14 +307,6 @@ function checkNotesToFaceTieOut(markdown, metrics) {
     const noteTotal = parseIndianAmount(m[1]);
     if (noteTotal == null) continue;
 
-    // metrics.faceValue is already in lakhs; the note figure has not been
-    // normalised. Use the document rounding for the note figure.
-    // (We trust the same rounding applies throughout the PDF.)
-    const rounding = (markdown.match(/(rs?\.?|rupees?|amount(?:s)?)\s+in\s+crores?/i)) ? 100
-                   : (markdown.match(/(rs?\.?|rupees?|amount(?:s)?)\s+in\s+lakhs?/i)) ? 1
-                   : (markdown.match(/(rs?\.?|rupees?|amount(?:s)?)\s+in\s+millions?/i)) ? 10
-                   : (markdown.match(/(rs?\.?|rupees?|amount(?:s)?)\s+in\s+thousands?/i)) ? 0.01
-                   : 0.00001;
     const noteInLakhs = noteTotal * rounding;
 
     if (approxEqual(noteInLakhs, p.faceValue, { absTol: 1, relTol: 0.01 })) continue;

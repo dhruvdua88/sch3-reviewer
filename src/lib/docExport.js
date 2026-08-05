@@ -35,6 +35,17 @@ const caroReferenceHTML = `
 <p style="margin:10pt 0;text-align:justify;">As required by the Companies (Auditor's Report) Order, 2020 ("the Order"), issued by the Central Government in terms of Section 143(11) of the Act, we give in <strong>"Annexure A"</strong> a statement on the matters specified in paragraphs 3 and 4 of the Order, to the extent applicable.</p>
 `;
 
+// ---- Escaping ----
+// The .doc payload is HTML. Every value that originates from the reviewer
+// (Rule 11 free text, firm/partner details) or from the model (CARO remarks)
+// MUST be escaped: a bare '<' in something like "claims < Rs 50 lakh" swallows
+// the rest of the markup and Word opens a truncated or malformed report.
+// Only the literal template strings in this file may contain live tags.
+function escapeHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 // ---- Rule 11 builder ----
 // Renders multi-paragraph text safely by splitting on blank lines.
 function renderParagraphs(text, indent = '48pt') {
@@ -43,7 +54,7 @@ function renderParagraphs(text, indent = '48pt') {
     .split(/\n{2,}/)              // blank-line splits
     .map((para) => para.trim())
     .filter(Boolean)
-    .map((para) => `<p style="margin:5pt 0 5pt ${indent};text-align:justify;">${para.replace(/\n/g, '<br/>')}</p>`)
+    .map((para) => `<p style="margin:5pt 0 5pt ${indent};text-align:justify;">${escapeHtml(para).replace(/\n/g, '<br/>')}</p>`)
     .join('\n');
 }
 
@@ -65,16 +76,16 @@ const buildRule11HTML = (rf) => {
   return `
 <p style="margin:8pt 0 6pt 24pt;text-align:justify;">h) With respect to the other matters to be included in the Auditor's Report in accordance with Rule 11 of the Companies (Audit and Auditors) Rules, 2014, as amended, in our opinion and to the best of our information and according to the explanations given to us:</p>
 
-<p style="margin:5pt 0 5pt 48pt;text-align:justify;">i. ${rf.rule11a_litigation || ''}</p>
+<p style="margin:5pt 0 5pt 48pt;text-align:justify;">i. ${escapeHtml(rf.rule11a_litigation)}</p>
 
-<p style="margin:5pt 0 5pt 48pt;text-align:justify;">ii. ${rf.rule11b_longTermContracts || ''}</p>
+<p style="margin:5pt 0 5pt 48pt;text-align:justify;">ii. ${escapeHtml(rf.rule11b_longTermContracts)}</p>
 
-<p style="margin:5pt 0 5pt 48pt;text-align:justify;">iii. ${rf.rule11c_iepf || ''}</p>
+<p style="margin:5pt 0 5pt 48pt;text-align:justify;">iii. ${escapeHtml(rf.rule11c_iepf)}</p>
 
 <p style="margin:5pt 0 5pt 48pt;text-align:justify;font-weight:bold;">iv. (Ultimate Beneficiary representation)</p>
 ${renderParagraphs(e_text)}
 
-<p style="margin:5pt 0 5pt 48pt;text-align:justify;">v. ${rf.rule11f_dividend || ''}</p>
+<p style="margin:5pt 0 5pt 48pt;text-align:justify;">v. ${escapeHtml(rf.rule11f_dividend)}</p>
 
 <p style="margin:5pt 0 5pt 48pt;text-align:justify;font-weight:bold;">vi. (Reporting on audit trail under Rule 11(g))</p>
 ${renderParagraphs(g_text)}
@@ -89,15 +100,15 @@ const buildAnnexureA = (caro, companyName) => {
     <br clear="all" style="page-break-before:always" />
     <h2 style="font-family:'Times New Roman',serif;font-size:14pt;font-weight:bold;text-align:center;margin:24pt 0 8pt;">ANNEXURE A TO THE INDEPENDENT AUDITOR'S REPORT</h2>
     <p style="text-align:center;font-style:italic;margin:0 0 6pt;">(Referred to in paragraph under 'Report on Other Legal and Regulatory Requirements' section of our report of even date)</p>
-    <p style="text-align:center;font-weight:bold;margin:0 0 18pt;">To the Members of ${companyName}</p>
+    <p style="text-align:center;font-weight:bold;margin:0 0 18pt;">To the Members of ${escapeHtml(companyName)}</p>
 
     <p style="text-align:justify;margin:8pt 0;">In terms of the information and explanations sought by us and given by the Company and the books of account and records examined by us in the normal course of audit, and to the best of our knowledge and belief, we state that:</p>
 
     ${clauses.map((c, idx) => `
       <p style="margin:14pt 0 6pt 0;text-align:justify;font-weight:bold;">
-        ${ROMAN_LOWER[idx] || (idx + 1)}) ${c.topic} <span style="font-weight:normal;font-style:italic;color:#444;">[${c.paragraph}]</span>
+        ${ROMAN_LOWER[idx] || (idx + 1)}) ${escapeHtml(c.topic)} <span style="font-weight:normal;font-style:italic;color:#444;">[${escapeHtml(c.paragraph)}]</span>
       </p>
-      <div style="margin:0 0 8pt 24pt;text-align:justify;white-space:pre-line;line-height:1.5;">${(c.remark || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+      <div style="margin:0 0 8pt 24pt;text-align:justify;white-space:pre-line;line-height:1.5;">${escapeHtml(c.remark)}</div>
     `).join('')}
   `;
 };
@@ -109,7 +120,7 @@ const buildAnnexureB = (companyName) => `
   <p style="text-align:center;font-style:italic;margin:0 0 6pt;">(Referred to in paragraph (f) under 'Report on Other Legal and Regulatory Requirements' section of our report of even date)</p>
   <p style="text-align:center;font-weight:bold;margin:0 0 18pt;">Report on the Internal Financial Controls with reference to financial statements under Clause (i) of Sub-section 3 of Section 143 of the Companies Act, 2013 ("the Act")</p>
 
-  <p style="margin:10pt 0;text-align:justify;">We have audited the internal financial controls with reference to financial statements of <strong>${companyName}</strong> ("the Company") as of the balance sheet date in conjunction with our audit of the standalone financial statements of the Company for the year ended on that date.</p>
+  <p style="margin:10pt 0;text-align:justify;">We have audited the internal financial controls with reference to financial statements of <strong>${escapeHtml(companyName)}</strong> ("the Company") as of the balance sheet date in conjunction with our audit of the standalone financial statements of the Company for the year ended on that date.</p>
 
   <h3 style="font-size:12pt;font-weight:bold;margin:14pt 0 4pt;">Management's Responsibility for Internal Financial Controls</h3>
   <p style="margin:6pt 0;text-align:justify;">The Company's Management is responsible for establishing and maintaining internal financial controls based on the internal control with reference to financial statements criteria established by the Company considering the essential components of internal control stated in the Guidance Note on Audit of Internal Financial Controls Over Financial Reporting issued by the Institute of Chartered Accountants of India ("the ICAI"). These responsibilities include the design, implementation and maintenance of adequate internal financial controls that were operating effectively for ensuring the orderly and efficient conduct of its business, including adherence to the Company's policies, the safeguarding of its assets, the prevention and detection of frauds and errors, the accuracy and completeness of the accounting records, and the timely preparation of reliable financial information, as required under the Act.</p>
@@ -134,17 +145,17 @@ const buildSignatureBlockHTML = (rf) => `
   <table style="width:100%;margin-top:36pt;border-collapse:collapse;">
     <tr>
       <td style="width:50%;vertical-align:top;padding:0;">
-        <p style="margin:0;font-weight:bold;">For ${rf.firmName}</p>
+        <p style="margin:0;font-weight:bold;">For ${escapeHtml(rf.firmName)}</p>
         <p style="margin:2pt 0;">Chartered Accountants</p>
-        <p style="margin:2pt 0;">Firm Registration Number: ${rf.firmFRN}</p>
+        <p style="margin:2pt 0;">Firm Registration Number: ${escapeHtml(rf.firmFRN)}</p>
         <br/><br/><br/>
-        <p style="margin:0;font-weight:bold;">${rf.partnerName}</p>
-        <p style="margin:2pt 0;">${rf.partnerDesignation}</p>
-        <p style="margin:2pt 0;">Membership Number: ${rf.membershipNo}</p>
-        <p style="margin:2pt 0;">UDIN: ${rf.udin || '__________________'}</p>
+        <p style="margin:0;font-weight:bold;">${escapeHtml(rf.partnerName)}</p>
+        <p style="margin:2pt 0;">${escapeHtml(rf.partnerDesignation)}</p>
+        <p style="margin:2pt 0;">Membership Number: ${escapeHtml(rf.membershipNo)}</p>
+        <p style="margin:2pt 0;">UDIN: ${rf.udin ? escapeHtml(rf.udin) : '__________________'}</p>
       </td>
       <td style="width:50%;vertical-align:top;padding:0;text-align:right;">
-        <p style="margin:0;">Place: ${rf.place}</p>
+        <p style="margin:0;">Place: ${escapeHtml(rf.place)}</p>
         <p style="margin:2pt 0;">Date: ${formatLongDate(rf.reportDate)}</p>
       </td>
     </tr>
@@ -153,8 +164,13 @@ const buildSignatureBlockHTML = (rf) => `
 
 // ---- Full Report HTML ----
 export function buildReportHTML(analysis, caro, rf, ifcofrApplies) {
-  const co         = analysis.company;
-  const yearEnd    = co.yearEnd || '31 March, 20YY';
+  // A partially-extracted or imported engagement can arrive without `company`.
+  // Fall back to placeholders rather than throwing — a report with "[Company
+  // Name]" in it is fixable by the reviewer; a crashed click is not.
+  const co         = analysis?.company || {};
+  const coNameRaw  = co.name || '[Company Name]';   // annexure builders escape it themselves
+  const coName     = escapeHtml(coNameRaw);
+  const yearEnd    = escapeHtml(co.yearEnd || '31 March, 20YY');
   const caroApplies = !!caro?.applicability?.applies;
 
   const css = `
@@ -167,12 +183,12 @@ export function buildReportHTML(analysis, caro, rf, ifcofrApplies) {
 
   const main = `
     <h1 style="font-size:16pt;font-weight:bold;text-align:center;margin:0 0 12pt;text-decoration:underline;">INDEPENDENT AUDITOR'S REPORT</h1>
-    <p style="font-weight:bold;margin:12pt 0 6pt;">To the Members of ${co.name},</p>
+    <p style="font-weight:bold;margin:12pt 0 6pt;">To the Members of ${coName},</p>
 
     <h2 style="font-size:13pt;font-weight:bold;margin:16pt 0 6pt;">Report on the Audit of the Standalone Financial Statements</h2>
 
     <h3 style="font-size:12pt;font-weight:bold;margin:12pt 0 4pt;">Opinion</h3>
-    <p style="text-align:justify;">We have audited the accompanying standalone financial statements of <strong>${co.name}</strong> ("the Company"), which comprise the Balance Sheet as at ${yearEnd}, the Statement of Profit and Loss and the Cash Flow Statement for the year then ended, and notes to the financial statements, including a summary of significant accounting policies and other explanatory information.</p>
+    <p style="text-align:justify;">We have audited the accompanying standalone financial statements of <strong>${coName}</strong> ("the Company"), which comprise the Balance Sheet as at ${yearEnd}, the Statement of Profit and Loss and the Cash Flow Statement for the year then ended, and notes to the financial statements, including a summary of significant accounting policies and other explanatory information.</p>
     <p style="text-align:justify;">In our opinion and to the best of our information and according to the explanations given to us, the aforesaid standalone financial statements give the information required by the Companies Act, 2013 ("the Act") in the manner so required and give a true and fair view in conformity with the accounting principles generally accepted in India, of the state of affairs of the Company as at ${yearEnd}, and its profit/(loss) and its cash flows for the year ended on that date.</p>
 
     <h3 style="font-size:12pt;font-weight:bold;margin:12pt 0 4pt;">Basis for Opinion</h3>
@@ -205,13 +221,13 @@ export function buildReportHTML(analysis, caro, rf, ifcofrApplies) {
     ${buildSignatureBlockHTML(rf)}
   `;
 
-  const annexA = caroApplies  ? buildAnnexureA(caro, co.name) : '';
-  const annexB = ifcofrApplies ? buildAnnexureB(co.name)       : '';
+  const annexA = caroApplies  ? buildAnnexureA(caro, coNameRaw) : '';
+  const annexB = ifcofrApplies ? buildAnnexureB(coNameRaw)       : '';
 
   return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
 <head>
 <meta charset="utf-8"/>
-<title>Independent Auditor's Report — ${co.name}</title>
+<title>Independent Auditor's Report — ${coName}</title>
 ${css}
 </head>
 <body>
@@ -241,11 +257,6 @@ export function downloadAsWord(html, filename) {
 // the noteText body. Newlines in noteText become <br/> and pipe-tables
 // are kept as monospace blocks (Word renders monospace tables passably).
 // ============================================================
-function escapeHtml(s) {
-  return String(s || '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
 function noteBodyToHtml(noteText) {
   if (!noteText) return '';
   // Detect any pipe-table-ish blocks and render them in monospace verbatim;

@@ -27,9 +27,13 @@ export const DEFAULT_STATUS = 'open';
 
 // ── Pure helpers — no I/O, no React ──────────────────────────────────
 
+// Shared frozen default — a stable reference so memoized issue cards don't
+// see a "new" state object on every render for untouched issues.
+const EMPTY_STATE = Object.freeze({ status: DEFAULT_STATUS, history: Object.freeze([]), note: '' });
+
 export function getIssueState(issueStates, issueId) {
-  if (!issueId) return { status: DEFAULT_STATUS, history: [], note: '' };
-  return issueStates?.[issueId] || { status: DEFAULT_STATUS, history: [], note: '' };
+  if (!issueId) return EMPTY_STATE;
+  return issueStates?.[issueId] || EMPTY_STATE;
 }
 
 /**

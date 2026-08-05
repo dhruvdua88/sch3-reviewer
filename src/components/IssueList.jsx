@@ -219,14 +219,15 @@ export function IssueList({
               key={id}
               issue={iss}
               index={idx + 1}
+              expandId={id}
               expanded={expansion[id] !== undefined ? expansion[id] : defaultExpansion(iss, state.status)}
               focused={idx === focusedIdx}
-              onToggleExpand={() => toggleExpand(id)}
+              onToggleExpand={toggleExpand}
               status={state.status}
               note={state.note}
               history={state.history}
-              onSetStatus={(next) => onSetStatus?.(iss.id, next)}
-              onSetNote={(note) => onSetNote?.(iss.id, note)}
+              onSetStatus={onSetStatus}
+              onSetNote={onSetNote}
               onViewSource={onViewSource}
             />
           );

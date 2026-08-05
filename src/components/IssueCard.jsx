@@ -301,8 +301,11 @@ function NoteEditor({ initial, onSave, onCancel }) {
   );
 }
 
-export function IssueCard({
-  issue, index,
+// Memoized: with 60-issue lists a single status click used to re-render every
+// card. Callbacks receive ids (expandId / issue.id) so the parent can pass
+// stable function references instead of per-card closures.
+export const IssueCard = React.memo(function IssueCard({
+  issue, index, expandId,
   expanded, focused, onToggleExpand,
   status, note, history,
   onSetStatus, onSetNote,
@@ -339,7 +342,7 @@ export function IssueCard({
     >
       {/* Header row — clickable to toggle expand */}
       <div
-        onClick={() => onToggleExpand?.()}
+        onClick={() => onToggleExpand?.(expandId)}
         style={{ cursor: 'pointer' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
@@ -421,7 +424,7 @@ export function IssueCard({
           {editingNote && (
             <NoteEditor
               initial={note}
-              onSave={(t) => { onSetNote?.(t); setEditingNote(false); }}
+              onSave={(t) => { onSetNote?.(issue.id, t); setEditingNote(false); }}
               onCancel={() => setEditingNote(false)}
             />
           )}
@@ -434,7 +437,7 @@ export function IssueCard({
           }}>
             <ActionMenu
               status={status || 'open'}
-              onSetStatus={(next) => onSetStatus?.(next)}
+              onSetStatus={(next) => onSetStatus?.(issue.id, next)}
               onAddNote={() => setEditingNote(true)}
             />
             <span style={{ fontSize: 10, color: COLORS.TEXT_FAINT }}>
@@ -447,4 +450,4 @@ export function IssueCard({
       )}
     </div>
   );
-}
+});

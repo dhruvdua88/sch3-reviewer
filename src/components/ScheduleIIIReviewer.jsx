@@ -4,7 +4,7 @@
 // Phase machine:
 //   upload → extracting → preview → analyzing-sch3 → analyzing-caro → done | error
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Layers, ShieldCheck, Hash, FileSignature, XCircle, RotateCcw, Building2, FilePlus2,
 } from 'lucide-react';
@@ -18,7 +18,7 @@ import { extractPdfToMarkdown }                  from '../lib/pdfExtract.js';
 import { extractExcelToMarkdown, isExcelFile }   from '../lib/excelExtract.js';
 import { ocrPdfToMarkdown }                      from '../lib/ocrPdf.js';
 import { callDeepSeek, chatDeepSeek, AuthError, RateLimitError, ApiError } from '../lib/deepseek.js';
-import { generateReport, downloadAsWord, downloadAccountingPoliciesWord } from '../lib/docExport.js';
+import { generateReport, downloadAccountingPoliciesWord } from '../lib/docExport.js';
 import { exportExcel }                           from '../lib/excelExport.js';
 import { fmtLakhs }                              from '../lib/format.js';
 import {
@@ -623,21 +623,6 @@ export function ScheduleIIIReviewer() {
     }
   };
 
-  // Filter issues to those that look like missing-disclosure findings — these
-  // are what the auto-drafter can write a note for. Computational / arithmetic
-  // / classification issues are skipped (the prompt would have to invent context).
-  const eligibleNotesIssues = (analysis?.scheduleIIIIssues || []).filter((iss) => {
-    if (!iss) return false;
-    if (iss.severity === 'LOW') return false;
-    const cat = (iss.category || '').toLowerCase();
-    const obs = (iss.observation || '').toLowerCase();
-    const evq = (iss.evidenceQuote || '').toLowerCase();
-    const isDisclosureType  = cat.includes('disclosure');
-    const looksMissing      = /missing|not\s+(provided|disclosed|located|present|given|made)|absent|omitted/i.test(obs)
-                              || /not\s+(located|provided|present|disclosed)/i.test(evq);
-    return isDisclosureType || looksMissing;
-  });
-
   // Single-call accounting policies drafter. Produces ONE comprehensive
   // "Significant Accounting Policies" note (Note 2) covering every relevant
   // sub-policy for the engagement. Cancellable; respects the global timeout.
@@ -703,6 +688,9 @@ export function ScheduleIIIReviewer() {
   const handleSetIssueNote = useCallback((issueId, note) => {
     setIssueStates((prev) => setIssueNote(prev, issueId, note));
   }, []);
+
+  // Stable reference so memoized IssueCards don't re-render on unrelated state changes.
+  const handleViewSource = useCallback((it) => setSourceModalIssue(it), []);
 
   // Persist issue-state changes to the current engagement entry so they
   // survive page reloads. Skipped before the engagement is first saved.
@@ -786,10 +774,15 @@ INSTRUCTIONS
 
   const handleGenerateWord = () => {
     if (!analysis) return;
-    const ifcofrApplies = (analysis.keyMetrics?.revenueLakhs || 0) >= 5000;
-    const html = generateReport(analysis, caro, reportFields, ifcofrApplies);
-    const safeName = (analysis.company?.name || 'Company').replace(/[^a-zA-Z0-9]+/g, '_').slice(0, 40);
-    downloadAsWord(html, `${safeName}_Independent_Auditors_Report.doc`);
+    // generateReport() computes ifcofrApplies, builds the HTML AND downloads it.
+    // Do not download again here — a second Blob download of its (undefined)
+    // return value trips Chrome's multiple-download block and emits a junk file.
+    try {
+      generateReport(analysis, caro, reportFields);
+    } catch (err) {
+      console.error('Word report generation failed:', err);
+      alert('Word report generation failed: ' + (err.message || 'Unknown error'));
+    }
   };
 
   // ════════════════════════════════════════════════════
@@ -869,10 +862,18 @@ INSTRUCTIONS
     return c;
   }
 
-  const counts       = analysis ? buildCounts(analysis.scheduleIIIIssues || []) : { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
-  const issuesSorted = analysis
-    ? [...(analysis.scheduleIIIIssues || [])].sort((a, b) => (SEVERITY[a.severity]?.rank ?? 9) - (SEVERITY[b.severity]?.rank ?? 9))
-    : [];
+  // Memoized on analysis: keeps array identity stable across unrelated
+  // re-renders (chat, report fields) so the memoized issue list stays cheap.
+  const counts = useMemo(
+    () => analysis ? buildCounts(analysis.scheduleIIIIssues || []) : { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 },
+    [analysis]
+  );
+  const issuesSorted = useMemo(
+    () => analysis
+      ? [...(analysis.scheduleIIIIssues || [])].sort((a, b) => (SEVERITY[a.severity]?.rank ?? 9) - (SEVERITY[b.severity]?.rank ?? 9))
+      : [],
+    [analysis]
+  );
 
   // ════════════════════════════════════════════════════
   // FIRST-RUN GATE — soft gate, can be skipped for Quick Review only
@@ -1109,7 +1110,7 @@ INSTRUCTIONS
                     issueStates={issueStates}
                     onSetStatus={handleSetIssueStatus}
                     onSetNote={handleSetIssueNote}
-                    onViewSource={(it) => setSourceModalIssue(it)}
+                    onViewSource={handleViewSource}
                   />
                 )}
               </div>

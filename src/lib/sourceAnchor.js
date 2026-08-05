@@ -35,6 +35,68 @@ function tokenise(s) {
     .filter((t) => t.length >= 5 && !/^\d+$/.test(t));
 }
 
+// Normalise (and lazily tokenise) each page ONCE per anchoring run, instead of
+// once per issue per page per strategy — with 60 issues over 40 pages that
+// repeated work dominated anchoring time.
+function prepPages(pages) {
+  if (!Array.isArray(pages)) return [];
+  return pages
+    .filter((p) => p && p.text)
+    .map((p) => ({ pageNum: p.pageNum, norm: normalise(p.text), tokens: null, raw: p.text }));
+}
+
+function matchQuotePrepped(quote, prepped) {
+  if (!quote || prepped.length === 0)  return null;
+  if (NOT_LOCATED_RX.test(quote))      return null;
+
+  const q = normalise(quote);
+  if (q.length < 5) return null;
+
+  // ── Strategy 1: exact case-insensitive substring ──
+  for (const p of prepped) {
+    if (p.norm.includes(q)) {
+      return { pageNum: p.pageNum, matchedSpan: quote, confidence: 'exact' };
+    }
+  }
+
+  // ── Strategy 2: longest consecutive-word overlap ──
+  // Windows built once per size (not per page). Iteration order preserves the
+  // original selection: largest window wins, ties go to the earliest page,
+  // then the earliest window position within the quote.
+  const qWords = q.split(' ').filter((w) => w.length > 0);
+  for (let w = Math.min(qWords.length, 12); w >= 4; w--) {
+    const slices = [];
+    for (let i = 0; i + w <= qWords.length; i++) slices.push(qWords.slice(i, i + w).join(' '));
+    for (const p of prepped) {
+      for (const slice of slices) {
+        if (p.norm.includes(slice)) {
+          return { pageNum: p.pageNum, matchedSpan: slice, confidence: 'partial' };
+        }
+      }
+    }
+  }
+
+  // ── Strategy 3: token-overlap fallback ──
+  const qTokens = new Set(tokenise(quote));
+  if (qTokens.size === 0) return null;
+  let topPage = null;
+  let topScore = 0;
+  for (const p of prepped) {
+    if (!p.tokens) p.tokens = new Set(tokenise(p.raw));
+    let score = 0;
+    qTokens.forEach((tok) => { if (p.tokens.has(tok)) score++; });
+    if (score > topScore) {
+      topScore = score;
+      topPage  = p.pageNum;
+    }
+  }
+  // Require at least 40% of the quote's distinct tokens to appear on the page.
+  if (topPage && topScore >= Math.max(2, Math.ceil(qTokens.size * 0.4))) {
+    return { pageNum: topPage, matchedSpan: quote, confidence: 'fuzzy' };
+  }
+  return null;
+}
+
 /**
  * For one evidenceQuote, find the best-matching page.
  *
@@ -44,62 +106,7 @@ function tokenise(s) {
  */
 export function matchQuoteToPage(quote, pages) {
   if (!quote || !Array.isArray(pages) || pages.length === 0) return null;
-  if (NOT_LOCATED_RX.test(quote))                              return null;
-
-  const q = normalise(quote);
-  if (q.length < 5) return null;
-
-  // ── Strategy 1: exact case-insensitive substring ──
-  // Use the longest run that survives — useful when quote is long.
-  for (const { pageNum, text } of pages) {
-    if (!text) continue;
-    const t = normalise(text);
-    if (t.includes(q)) {
-      return { pageNum, matchedSpan: quote, confidence: 'exact' };
-    }
-  }
-
-  // ── Strategy 2: longest consecutive-word overlap ──
-  const qWords = q.split(' ').filter((w) => w.length > 0);
-  let best = { pageNum: null, overlap: 0, span: '' };
-  for (const { pageNum, text } of pages) {
-    if (!text) continue;
-    const t = normalise(text);
-    // Try progressively shorter windows from full quote down to 4 words.
-    for (let w = Math.min(qWords.length, 12); w >= 4; w--) {
-      for (let i = 0; i + w <= qWords.length; i++) {
-        const slice = qWords.slice(i, i + w).join(' ');
-        if (t.includes(slice) && w > best.overlap) {
-          best = { pageNum, overlap: w, span: slice };
-        }
-      }
-      if (best.overlap >= w) break; // already found a window this size or larger
-    }
-  }
-  if (best.pageNum && best.overlap >= 4) {
-    return { pageNum: best.pageNum, matchedSpan: best.span, confidence: 'partial' };
-  }
-
-  // ── Strategy 3: token-overlap fallback ──
-  const qTokens = new Set(tokenise(quote));
-  if (qTokens.size === 0) return null;
-  let topPage = null;
-  let topScore = 0;
-  for (const { pageNum, text } of pages) {
-    if (!text) continue;
-    const pTokens = new Set(tokenise(text));
-    let score = 0;
-    qTokens.forEach((tok) => { if (pTokens.has(tok)) score++; });
-    if (score > topScore) {
-      topScore = score;
-      topPage  = pageNum;
-    }
-  }
-  // Require at least 40% of the quote's distinct tokens to appear on the page.
-  if (topPage && topScore >= Math.max(2, Math.ceil(qTokens.size * 0.4))) {
-    return { pageNum: topPage, matchedSpan: quote, confidence: 'fuzzy' };
-  }
-  return null;
+  return matchQuotePrepped(quote, prepPages(pages));
 }
 
 /**
@@ -113,9 +120,10 @@ export function matchQuoteToPage(quote, pages) {
  */
 export function anchorIssuesToPages(analysis, pages) {
   if (!analysis || !Array.isArray(analysis.scheduleIIIIssues)) return analysis;
+  const prepped = prepPages(pages);
   const anchored = analysis.scheduleIIIIssues.map((iss) => {
     if (!iss) return iss;
-    const result = matchQuoteToPage(iss.evidenceQuote, pages);
+    const result = matchQuotePrepped(iss.evidenceQuote, prepped);
     if (!result) return { ...iss, sourcePage: null, sourceMatch: null };
     return {
       ...iss,

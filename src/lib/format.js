@@ -25,7 +25,12 @@ export const fmtCrores = (lakhs) => {
   return `Rs ${(Number(lakhs) / 100).toFixed(2)} cr`;
 };
 
-export const ROMAN_LOWER = ['i','ii','iii','iv','v','vi','vii','viii','ix','x'];
+// Must cover all 21 CARO 2020 paragraphs — Annexure A numbers its clauses from
+// this list, and a short list silently falls back to arabic numerals part-way.
+export const ROMAN_LOWER = [
+  'i','ii','iii','iv','v','vi','vii','viii','ix','x',
+  'xi','xii','xiii','xiv','xv','xvi','xvii','xviii','xix','xx','xxi',
+];
 
 // ---- Token cost estimate (DeepSeek approximate rates, USD → INR) ----
 // deepseek-v4-pro rates assumed similar to V3: $0.27/M input, $1.10/M output
