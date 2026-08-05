@@ -329,7 +329,13 @@ async function _doCallInner({
         response_format: { type: 'json_object' },
         temperature,
         top_p,
-        max_tokens:   16000,
+        // Ceiling, not a target — it costs nothing unused. Sized for reasoning
+        // headroom: flash draws reasoning tokens from this same budget, and
+        // measured runs spent ~6,800 of them on a ONE-PAGE statement. On a
+        // dense 40-page set a 16000 ceiling can be exhausted by reasoning
+        // alone, which returns empty content + finish_reason 'length' rather
+        // than a short answer. The API accepts up to 65536.
+        max_tokens:   32000,
         stream:       useStreaming,
         ...(useStreaming ? { stream_options: { include_usage: true } } : {}),
       }),
