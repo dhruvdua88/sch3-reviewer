@@ -100,17 +100,13 @@ export function SettingsPanel({ settings, apiKey, onSettingsChange, onApiKeyChan
             </div>
           </div>
 
-          {/* Model selector */}
+          {/* Model — flash is the only model this app uses, no picker needed */}
           <SectionHeader>AI Model</SectionHeader>
           <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>Default model</label>
-            <select value={localSettings.model} onChange={(e) => update('model', e.target.value)} style={inputStyle}>
-              <option value="deepseek-chat">deepseek-chat (fast, default — V3)</option>
-              <option value="deepseek-reasoner">deepseek-reasoner (heavier reasoning — R1)</option>
-            </select>
-            <p style={{ marginTop: 4, fontSize: 11, color: COLORS.TEXT_FAINT }}>
-              NOTE: If DeepSeek changes the model slug, update it here.
-            </p>
+            <label style={labelStyle}>Model</label>
+            <div style={{ ...inputStyle, fontFamily: FONTS.MONO, color: COLORS.TEXT_MUTED }}>
+              deepseek-v4-flash
+            </div>
           </div>
 
           {/* Firm defaults */}

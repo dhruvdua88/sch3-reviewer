@@ -172,7 +172,7 @@ function Rule11Item({
 
 // ── Main component ──────────────────────────────────────────────────────────
 
-export function AuditReportTab({ analysis, caro, reportFields: rf, setReportFields, onGenerate }) {
+export function AuditReportTab({ analysis, caro, reportFields: rf, setReportFields, onGenerate, exporting }) {
   const ifcofrApplies = (analysis?.keyMetrics?.revenueLakhs || 0) >= 5000;
   const caroApplies   = !!caro?.applicability?.applies;
   const allReviewed   = rf.reviewed ? Object.values(rf.reviewed).every(Boolean) : false;
@@ -346,7 +346,12 @@ export function AuditReportTab({ analysis, caro, reportFields: rf, setReportFiel
         </div>
         <button
           onClick={onGenerate}
-          style={{ ...BTN_PRIMARY, padding: '12px 22px', fontSize: 14, opacity: allReviewed ? 1 : 0.7 }}
+          disabled={exporting}
+          style={{
+            ...BTN_PRIMARY, padding: '12px 22px', fontSize: 14,
+            opacity: exporting ? 0.6 : (allReviewed ? 1 : 0.7),
+            cursor: exporting ? 'wait' : 'pointer',
+          }}
         >
           <Download size={15} /> Generate Word Report
         </button>

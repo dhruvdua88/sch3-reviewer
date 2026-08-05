@@ -486,14 +486,14 @@ const CHUNK_SIZE = 55;
  * @param {object} opts
  * @param {Array}  opts.rows      - parsed rows from parseGrid/parsePasted
  * @param {string} opts.apiKey
- * @param {string} [opts.model]   - default 'deepseek-chat'
+ * @param {string} [opts.model]   - default 'deepseek-v4-flash'
  * @param {AbortSignal} [opts.signal]
  * @param {(done:number,total:number)=>void} [opts.onProgress]
  * @param {(u)=>void} [opts.onUsage]
  * @returns {Promise<{ results: Array, stats: object }>}
  */
 export async function mapGroupings({
-  rows, apiKey, model = 'deepseek-chat', signal, onProgress, onUsage,
+  rows, apiKey, model = 'deepseek-v4-flash', signal, onProgress, onUsage,
 }) {
   if (!apiKey) throw new Error('Add your DeepSeek API key to run the mapping.');
   if (!rows?.length) throw new Error('No ledgers found to map. Check the pasted data or file.');

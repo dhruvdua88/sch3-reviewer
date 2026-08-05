@@ -13,13 +13,12 @@ export function clearApiKey()   { localStorage.removeItem(KEY_API); }
 
 // ---- App Settings ----
 const DEFAULT_SETTINGS = {
-  // Real DeepSeek model ids (OpenAI-compatible endpoint). 'deepseek-chat' is the
-  // fast/cheap V3 model ("flash" tier); 'deepseek-reasoner' is the R1 reasoning
-  // model. The earlier 'deepseek-v4-pro'/'-flash' strings were placeholders that
-  // 404 against the live API — migrated here so calls actually resolve.
-  model:       'deepseek-chat',
-  modelFlash:  'deepseek-chat',
-  mapperModel: 'deepseek-chat',     // Grouping Mapper default (fast tier)
+  // 'deepseek-v4-flash' is the ONE model this app uses (per explicit user
+  // instruction — no Pro going ahead). It's a real, current canonical model
+  // id on the live DeepSeek API — not a placeholder.
+  model:       'deepseek-v4-flash',
+  modelFlash:  'deepseek-v4-flash',
+  mapperModel: 'deepseek-v4-flash',     // Grouping Mapper default
   firmName:    'Dhruv Dua & Co.',
   partnerName: 'Dhruv Dua',
   firmFRN:     '028145N',
@@ -27,10 +26,21 @@ const DEFAULT_SETTINGS = {
   place:       'New Delhi',
 };
 
+// Anything that is not the one supported model is coerced to it on read.
+// Without this, a browser that used the app before the flash-only switch keeps
+// sending its persisted 'deepseek-chat' / 'deepseek-reasoner' forever, because
+// the stored value wins over DEFAULT_SETTINGS in the spread below.
+export const SUPPORTED_MODEL = 'deepseek-v4-flash';
+const coerceModel = (m) => (m === SUPPORTED_MODEL ? m : SUPPORTED_MODEL);
+
 export function getSettings() {
   try {
     const stored = JSON.parse(localStorage.getItem(KEY_SETTINGS));
-    return stored ? { ...DEFAULT_SETTINGS, ...stored } : { ...DEFAULT_SETTINGS };
+    const s = stored ? { ...DEFAULT_SETTINGS, ...stored } : { ...DEFAULT_SETTINGS };
+    s.model       = coerceModel(s.model);
+    s.modelFlash  = coerceModel(s.modelFlash);
+    s.mapperModel = coerceModel(s.mapperModel);
+    return s;
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
@@ -49,7 +59,11 @@ const DEFAULT_RUN_PREFS = {
 export function getRunPrefs() {
   try {
     const stored = JSON.parse(localStorage.getItem(KEY_PREFS));
-    return stored ? { ...DEFAULT_RUN_PREFS, ...stored } : { ...DEFAULT_RUN_PREFS };
+    const p = stored ? { ...DEFAULT_RUN_PREFS, ...stored } : { ...DEFAULT_RUN_PREFS };
+    // A per-run override persisted before the flash-only switch would otherwise
+    // outrank settings.model on every future run.
+    if (p.model) p.model = coerceModel(p.model);
+    return p;
   } catch {
     return { ...DEFAULT_RUN_PREFS };
   }

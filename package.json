@@ -2,13 +2,13 @@
   "name": "sch3-reviewer",
   "version": "1.0.0",
   "private": true,
-  "description": "Schedule III Reviewer — DeepSeek-powered audit tool for Indian Chartered Accountants",
+  "description": "Schedule III Reviewer \u2014 DeepSeek-powered audit tool for Indian Chartered Accountants",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node test/grouping.test.mjs && node test/report.test.mjs && node test/sourceAnchor.test.mjs",
+    "test": "node test/grouping.test.mjs && node test/report.test.mjs && node test/sourceAnchor.test.mjs && node test/wordFormat.test.mjs && node test/exportLock.test.mjs && node test/modelMigration.test.mjs",
     "deploy:gh": "GITHUB_PAGES=true vite build && gh-pages -d dist"
   },
   "dependencies": {

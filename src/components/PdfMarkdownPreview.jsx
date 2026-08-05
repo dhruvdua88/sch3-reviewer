@@ -6,7 +6,7 @@
 import React, { useState, useRef } from 'react';
 import {
   FileText, Edit3, RefreshCw, Sparkles, AlertTriangle, Eye, ChevronDown, ChevronUp,
-  ShieldCheck, Zap, Brain, ScanLine, Loader2, FastForward, KeyRound,
+  ShieldCheck, Zap, ScanLine, Loader2, FastForward, KeyRound,
 } from 'lucide-react';
 import { COLORS, FONTS, BTN_PRIMARY, BTN_GHOST } from '../styles/tokens.js';
 
@@ -347,8 +347,8 @@ export function PdfMarkdownPreview({
           </label>
         )}
 
-        {/* Model segmented control — only meaningful for Deep AI Review */}
-        {selectedModel && onModelChange && (
+        {/* Model — flash is the only model this app uses, static readout */}
+        {selectedModel && (
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 10,
             marginTop: 14, fontSize: 12, color: COLORS.TEXT_MUTED,
@@ -356,54 +356,17 @@ export function PdfMarkdownPreview({
             <span style={{ textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, fontSize: 10 }}>
               AI model
             </span>
-            <div style={{
-              display: 'inline-flex',
-              border: `1px solid ${COLORS.BORDER_STRONG}`,
-              borderRadius: 999,
-              padding: 2,
-              background: COLORS.BG_CREAM,
+            <span className="mono" style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 999,
+              border: `1px solid ${COLORS.BORDER_STRONG}`, background: COLORS.BG_CREAM,
+              fontSize: 12, fontWeight: 600, color: COLORS.TEXT,
             }}>
-              <ModelPill
-                active={selectedModel === 'deepseek-reasoner'}
-                onClick={() => onModelChange('deepseek-reasoner')}
-                icon={Brain}
-                label="reasoner"
-                sublabel="deeper reasoning · ~75s"
-              />
-              <ModelPill
-                active={selectedModel === 'deepseek-chat'}
-                onClick={() => onModelChange('deepseek-chat')}
-                icon={Zap}
-                label="chat"
-                sublabel="faster · cheaper · ~45s"
-              />
-            </div>
+              <Zap size={13} /> {selectedModel}
+            </span>
           </div>
         )}
       </div>
     </div>
-  );
-}
-
-function ModelPill({ active, onClick, icon: Icon, label, sublabel }) {
-  return (
-    <button
-      onClick={onClick}
-      title={sublabel}
-      style={{
-        display: 'inline-flex', alignItems: 'center', gap: 6,
-        padding: '6px 14px',
-        background: active ? COLORS.PRIMARY : 'transparent',
-        color:      active ? '#faf6ee'      : COLORS.TEXT_MUTED,
-        border: 'none',
-        borderRadius: 999,
-        fontSize: 12, fontWeight: 600, fontFamily: FONTS.BODY,
-        cursor: 'pointer',
-        transition: 'background 150ms, color 150ms',
-      }}
-    >
-      <Icon size={13} />
-      <span>{label}</span>
-    </button>
   );
 }

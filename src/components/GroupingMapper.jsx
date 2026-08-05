@@ -17,7 +17,8 @@ import {
 import { COLORS, FONTS, BTN_PRIMARY } from '../styles/tokens.js';
 import { Button } from './ui/Button.jsx';
 import { Card } from './ui/Card.jsx';
-import { getApiKey, setApiKey as persistApiKey, getSettings, saveSettings } from '../lib/engagementStore.js';
+import { getApiKey, setApiKey as persistApiKey, getSettings } from '../lib/engagementStore.js';
+import { createExportLock } from '../lib/exportLock.js';
 import { FACE_HEADS, NOTES_BY_FACE } from '../data/sch3Vocab.js';
 import {
   parsePasted, readWorkbookToGrid, parseGrid, mapGroupings,
@@ -77,7 +78,8 @@ function CopyBtn({ text, label, icon: Icon = Copy, disabled }) {
 // =========================================================================
 export function GroupingMapper() {
   const [apiKey, setApiKeyState] = useState(() => getApiKey() || '');
-  const [model, setModel] = useState(() => getSettings().mapperModel || 'deepseek-chat');
+  // Flash is the only model this app uses — no picker, no setter needed.
+  const model = getSettings().mapperModel || 'deepseek-v4-flash';
   const [showKey, setShowKey] = useState(false);
 
   const [pasteText, setPasteText] = useState('');
@@ -97,8 +99,11 @@ export function GroupingMapper() {
   const abortRef = useRef(null);
   const fileRef = useRef(null);
 
+  // Excel download — own single-flight guard, isolated from the reviewer mode's.
+  const [xlsxExporting, setXlsxExporting] = useState(false);
+  const exportLockRef = useRef(createExportLock());
+
   const saveKey = (k) => { setApiKeyState(k); persistApiKey(k); };
-  const chooseModel = (m) => { setModel(m); const s = getSettings(); saveSettings({ ...s, mapperModel: m }); };
 
   // ---- ingest ----
   const ingestGrid = useCallback((grid, srcName) => {
@@ -251,15 +256,10 @@ export function GroupingMapper() {
               style={{ position: 'absolute', right: 6, top: 6, border: 'none', background: 'transparent', cursor: 'pointer', color: COLORS.TEXT_FAINT, fontSize: 11 }}
             >{showKey ? 'hide' : 'show'}</button>
           </div>
-          <select
-            value={model}
-            aria-label="DeepSeek model"
-            onChange={(e) => chooseModel(e.target.value)}
-            style={{ padding: '8px 10px', background: COLORS.BG_CREAM, border: `1px solid ${COLORS.BORDER_STRONG}`, borderRadius: 5, fontSize: 13, fontFamily: FONTS.BODY, color: COLORS.TEXT }}
-          >
-            <option value="deepseek-chat">deepseek-chat (fast)</option>
-            <option value="deepseek-reasoner">deepseek-reasoner (accurate)</option>
-          </select>
+          {/* Flash is the only model this app uses — static readout, no picker */}
+          <div style={{ padding: '8px 10px', background: COLORS.BG_CREAM, border: `1px solid ${COLORS.BORDER_STRONG}`, borderRadius: 5, fontSize: 13, fontFamily: FONTS.MONO, color: COLORS.TEXT_MUTED }}>
+            {model}
+          </div>
         </div>
       </Card>
 
@@ -379,7 +379,14 @@ export function GroupingMapper() {
               <div style={{ display: 'flex', gap: 8, padding: 12, flexWrap: 'wrap' }}>
                 <CopyBtn text={acceptedTSV} label="Copy Face·Note·Sub-Note (G:I)" icon={Copy} disabled={!acceptedTSV} />
                 <CopyBtn text={toFullTSV(results)} label="Copy full table" icon={Copy} />
-                <Button variant="ghost" onClick={() => downloadMappingExcel(results, fileName || 'Grouping')}>
+                <Button
+                  variant="ghost"
+                  disabled={xlsxExporting}
+                  onClick={() => exportLockRef.current.runExport(
+                    () => downloadMappingExcel(results, fileName || 'Grouping'),
+                    setXlsxExporting,
+                  )}
+                >
                   <Download size={14} /> Excel
                 </Button>
                 <Button variant="ghost" onClick={() => { setResults(null); setStats(null); }}>

@@ -46,6 +46,64 @@ function escapeHtml(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// ---- Shared Word shell ----
+// Real Word page geometry (A4, 1in top/bottom, 1.25in binding edge), Print
+// Layout on open, and a "Page X of Y" footer via MSO field codes. Every value
+// below is a static literal — never interpolated — so this shell can never
+// leak the string "undefined" into a report.
+const WORD_CSS = `
+<style>
+  @page WordSection1 {
+    size: 595.3pt 841.9pt;
+    margin: 72.0pt 63.0pt 72.0pt 90.0pt;
+    mso-header-margin: 35.4pt;
+    mso-footer-margin: 35.4pt;
+    mso-footer: f1;
+    mso-paper-source: 0;
+  }
+  div.WordSection1 { page: WordSection1; }
+  body { font-family: 'Times New Roman', serif; font-size: 11pt; line-height: 1.4; color: #000; }
+  h1, h2, h3 { font-family: 'Times New Roman', serif; mso-pagination: widow-orphan keep-with-next; page-break-after: avoid; }
+  p { margin: 6pt 0; text-align: justify; mso-pagination: widow-orphan; }
+  table.sig-block { page-break-inside: avoid; }
+  p.MsoFooter { margin: 0; text-align: center; font-size: 9pt; }
+</style>
+`;
+
+// Google Docs and browsers ignore the [if gte mso 9] conditional comment
+// entirely and drop this div, so no "Page 1 of 1" leaks into the visible
+// body outside Word. Inside Word, the PAGE / NUMPAGES field codes update live.
+const WORD_FOOTER = `
+<!--[if gte mso 9]>
+<div id="f1" style="mso-element:footer">
+<p class="MsoFooter">Page <span style="mso-element:field-begin"></span>PAGE<span style="mso-element:field-separator"></span><span style="mso-element:field-end"></span> of <span style="mso-element:field-begin"></span>NUMPAGES<span style="mso-element:field-separator"></span><span style="mso-element:field-end"></span></p>
+</div>
+<![endif]-->
+`;
+
+function wordShell(title, bodyHtml) {
+  return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8"/>
+<title>${title}</title>
+<!--[if gte mso 9]>
+<xml>
+<w:WordDocument>
+<w:View>Print</w:View>
+</w:WordDocument>
+</xml>
+<![endif]-->
+${WORD_CSS}
+</head>
+<body>
+<div class="WordSection1">
+${bodyHtml}
+</div>
+${WORD_FOOTER}
+</body>
+</html>`;
+}
+
 // ---- Rule 11 builder ----
 // Renders multi-paragraph text safely by splitting on blank lines.
 function renderParagraphs(text, indent = '48pt') {
@@ -98,7 +156,7 @@ const buildAnnexureA = (caro, companyName) => {
   const clauses = caro.clauses || [];
   return `
     <br clear="all" style="page-break-before:always" />
-    <h2 style="font-family:'Times New Roman',serif;font-size:14pt;font-weight:bold;text-align:center;margin:24pt 0 8pt;">ANNEXURE A TO THE INDEPENDENT AUDITOR'S REPORT</h2>
+    <h2 style="font-family:'Times New Roman',serif;font-size:14pt;font-weight:bold;text-align:center;margin:24pt 0 8pt;page-break-before:always;">ANNEXURE A TO THE INDEPENDENT AUDITOR'S REPORT</h2>
     <p style="text-align:center;font-style:italic;margin:0 0 6pt;">(Referred to in paragraph under 'Report on Other Legal and Regulatory Requirements' section of our report of even date)</p>
     <p style="text-align:center;font-weight:bold;margin:0 0 18pt;">To the Members of ${escapeHtml(companyName)}</p>
 
@@ -116,7 +174,7 @@ const buildAnnexureA = (caro, companyName) => {
 // ---- Annexure B: IFCoFR long-form per ICAI Guidance Note ----
 const buildAnnexureB = (companyName) => `
   <br clear="all" style="page-break-before:always" />
-  <h2 style="font-family:'Times New Roman',serif;font-size:14pt;font-weight:bold;text-align:center;margin:24pt 0 8pt;">ANNEXURE B TO THE INDEPENDENT AUDITOR'S REPORT</h2>
+  <h2 style="font-family:'Times New Roman',serif;font-size:14pt;font-weight:bold;text-align:center;margin:24pt 0 8pt;page-break-before:always;">ANNEXURE B TO THE INDEPENDENT AUDITOR'S REPORT</h2>
   <p style="text-align:center;font-style:italic;margin:0 0 6pt;">(Referred to in paragraph (f) under 'Report on Other Legal and Regulatory Requirements' section of our report of even date)</p>
   <p style="text-align:center;font-weight:bold;margin:0 0 18pt;">Report on the Internal Financial Controls with reference to financial statements under Clause (i) of Sub-section 3 of Section 143 of the Companies Act, 2013 ("the Act")</p>
 
@@ -142,8 +200,8 @@ const buildAnnexureB = (companyName) => `
 
 // ---- Signature block ----
 const buildSignatureBlockHTML = (rf) => `
-  <table style="width:100%;margin-top:36pt;border-collapse:collapse;">
-    <tr>
+  <table class="sig-block" style="width:100%;margin-top:36pt;border-collapse:collapse;page-break-inside:avoid;">
+    <tr style="page-break-inside:avoid;">
       <td style="width:50%;vertical-align:top;padding:0;">
         <p style="margin:0;font-weight:bold;">For ${escapeHtml(rf.firmName)}</p>
         <p style="margin:2pt 0;">Chartered Accountants</p>
@@ -173,16 +231,8 @@ export function buildReportHTML(analysis, caro, rf, ifcofrApplies) {
   const yearEnd    = escapeHtml(co.yearEnd || '31 March, 20YY');
   const caroApplies = !!caro?.applicability?.applies;
 
-  const css = `
-    <style>
-      body { font-family: 'Times New Roman', serif; font-size: 11pt; line-height: 1.4; color: #000; }
-      h1, h2, h3 { font-family: 'Times New Roman', serif; }
-      p { margin: 6pt 0; }
-    </style>
-  `;
-
   const main = `
-    <h1 style="font-size:16pt;font-weight:bold;text-align:center;margin:0 0 12pt;text-decoration:underline;">INDEPENDENT AUDITOR'S REPORT</h1>
+    <h1 style="font-size:14pt;font-weight:bold;text-align:center;margin:0 0 12pt;text-decoration:underline;">INDEPENDENT AUDITOR'S REPORT</h1>
     <p style="font-weight:bold;margin:12pt 0 6pt;">To the Members of ${coName},</p>
 
     <h2 style="font-size:13pt;font-weight:bold;margin:16pt 0 6pt;">Report on the Audit of the Standalone Financial Statements</h2>
@@ -224,18 +274,7 @@ export function buildReportHTML(analysis, caro, rf, ifcofrApplies) {
   const annexA = caroApplies  ? buildAnnexureA(caro, coNameRaw) : '';
   const annexB = ifcofrApplies ? buildAnnexureB(coNameRaw)       : '';
 
-  return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-<head>
-<meta charset="utf-8"/>
-<title>Independent Auditor's Report — ${coName}</title>
-${css}
-</head>
-<body>
-${main}
-${annexA}
-${annexB}
-</body>
-</html>`;
+  return wordShell(`Independent Auditor's Report — ${coName}`, main + annexA + annexB);
 }
 
 export function downloadAsWord(html, filename) {
@@ -313,15 +352,9 @@ export function downloadAccountingPoliciesWord(draftedPolicy, company, reportFie
     ${noteBodyToHtml(p.body || '')}
   `).join('');
 
-  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-<head>
-<meta charset="utf-8"/>
-<title>${escapeHtml(noteTitle || 'Significant Accounting Policies')} — ${escapeHtml(company?.name || 'Company')}</title>
-<style>
-  body { font-family: 'Times New Roman', serif; font-size: 11pt; line-height: 1.45; color: #000; }
-</style>
-</head>
-<body>
+  const title = `${escapeHtml(noteTitle || 'Significant Accounting Policies')} — ${escapeHtml(company?.name || 'Company')}`;
+
+  const body = `
   <h1 style="font-size:14pt;font-weight:bold;text-align:center;margin:0 0 6pt;text-decoration:underline;">
     ${escapeHtml(noteTitle || 'Note 2 — Significant Accounting Policies')}
   </h1>
@@ -336,8 +369,9 @@ export function downloadAccountingPoliciesWord(draftedPolicy, company, reportFie
   <p style="margin:10pt 0;text-align:justify;font-style:italic;color:#5c5e58;font-size:10pt;">
     The policy drafts above are AI-generated suggestions in standard Schedule III wording. Verify every accounting policy choice, every cited Accounting Standard, and every fact against the Company\'s actual practices before adopting in the financial statements. Placeholders shown in [BRACKETED CAPS] are to be selected or filled by the preparer.
   </p>
-</body>
-</html>`;
+  `;
+
+  const html = wordShell(title, body);
 
   downloadAsWord(html, `${safeName}_Accounting_Policies_Note.doc`);
 }

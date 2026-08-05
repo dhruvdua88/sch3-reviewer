@@ -67,7 +67,12 @@ export function EngagementHeader({
                 }
               </button>
 
-              <button onClick={onExportEngagement} style={BTN_GHOST} title="Export engagement JSON">
+              <button
+                onClick={onExportEngagement}
+                disabled={exporting}
+                style={{ ...BTN_GHOST, opacity: exporting ? 0.6 : 1, cursor: exporting ? 'wait' : 'pointer' }}
+                title="Export engagement JSON"
+              >
                 <Save size={14} /> Save
               </button>
             </>

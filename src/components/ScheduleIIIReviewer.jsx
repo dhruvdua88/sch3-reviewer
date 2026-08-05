@@ -30,6 +30,7 @@ import { sanitiseSch3Response } from '../lib/sch3Sanitise.js';
 import { anchorIssuesToPages } from '../lib/sourceAnchor.js';
 import { setIssueStatus, setIssueNote } from '../lib/issueState.js';
 import { runRuleEngine, mergeAnalyses } from '../lib/ruleEngine.js';
+import { createExportLock } from '../lib/exportLock.js';
 import { SourceModal } from './SourceModal.jsx';
 import { IssueList } from './IssueList.jsx';
 
@@ -215,7 +216,7 @@ export function ScheduleIIIReviewer() {
   // survive across engagements. The Settings panel still owns the global default.
   const [selectedModel, setSelectedModel] = useState(() => {
     const prefs = getRunPrefs();
-    return prefs.model || getSettings().model || 'deepseek-chat';
+    return prefs.model || getSettings().model || 'deepseek-v4-flash';
   });
   const [runCaro, setRunCaro] = useState(() => getRunPrefs().runCaro);
   // Tracks whether the model has begun streaming output for the active call.
@@ -241,6 +242,10 @@ export function ScheduleIIIReviewer() {
   const [tab,          setTab]         = useState('issues');
   const [reportFields, setReportFields] = useState({ ...DEFAULT_REPORT_FIELDS });
   const [exporting,    setExporting]   = useState(false);
+  // Single-flight guard shared by every export button (Excel / Word / notes /
+  // engagement JSON) — see lib/exportLock.js for why the cooldown matters.
+  const exportLockRef = useRef(createExportLock());
+  const runExport = (fn) => exportLockRef.current.runExport(fn, setExporting);
 
   // ── Import ref (hidden input for engagement JSON) ──
   const importRef = useRef(null);
@@ -610,17 +615,16 @@ export function ScheduleIIIReviewer() {
   // ════════════════════════════════════════════════════
   // EXPORTS
   // ════════════════════════════════════════════════════
-  const handleExportExcel = async () => {
-    if (!analysis || exporting) return;
-    setExporting(true);
-    try {
-      await exportExcel({ analysis, caro, reportFields });
-    } catch (err) {
-      console.error('Excel export failed:', err);
-      alert('Excel export failed: ' + (err.message || 'Unknown error'));
-    } finally {
-      setExporting(false);
-    }
+  const handleExportExcel = () => {
+    if (!analysis) return;
+    runExport(async () => {
+      try {
+        await exportExcel({ analysis, caro, reportFields });
+      } catch (err) {
+        console.error('Excel export failed:', err);
+        alert('Excel export failed: ' + (err.message || 'Unknown error'));
+      }
+    });
   };
 
   // Single-call accounting policies drafter. Produces ONE comprehensive
@@ -673,7 +677,7 @@ export function ScheduleIIIReviewer() {
 
   const handleDownloadNotesWord = () => {
     if (!draftedPolicy) return;
-    downloadAccountingPoliciesWord(draftedPolicy, analysis?.company, reportFields);
+    runExport(() => downloadAccountingPoliciesWord(draftedPolicy, analysis?.company, reportFields));
   };
 
   // ════════════════════════════════════════════════════
@@ -774,15 +778,17 @@ INSTRUCTIONS
 
   const handleGenerateWord = () => {
     if (!analysis) return;
-    // generateReport() computes ifcofrApplies, builds the HTML AND downloads it.
-    // Do not download again here — a second Blob download of its (undefined)
-    // return value trips Chrome's multiple-download block and emits a junk file.
-    try {
-      generateReport(analysis, caro, reportFields);
-    } catch (err) {
-      console.error('Word report generation failed:', err);
-      alert('Word report generation failed: ' + (err.message || 'Unknown error'));
-    }
+    runExport(() => {
+      // generateReport() computes ifcofrApplies, builds the HTML AND downloads it.
+      // Do not download again here — a second Blob download of its (undefined)
+      // return value trips Chrome's multiple-download block and emits a junk file.
+      try {
+        generateReport(analysis, caro, reportFields);
+      } catch (err) {
+        console.error('Word report generation failed:', err);
+        alert('Word report generation failed: ' + (err.message || 'Unknown error'));
+      }
+    });
   };
 
   // ════════════════════════════════════════════════════
@@ -790,7 +796,7 @@ INSTRUCTIONS
   // ════════════════════════════════════════════════════
   const handleExportEngagement = () => {
     if (!analysis) return;
-    exportEngagement({ analysis, caro, reportFields, issueStates });
+    runExport(() => exportEngagement({ analysis, caro, reportFields, issueStates }));
   };
 
   const handleImportEngagement = async (f) => {
@@ -848,7 +854,7 @@ INSTRUCTIONS
     setTab('issues');
     // Reset per-run controls back to defaults
     setRunCaro(true);
-    setSelectedModel(settings.model || 'deepseek-chat');
+    setSelectedModel(settings.model || 'deepseek-v4-flash');
     setAnalysisStartedAt(null);
     setFirstTokenReceivedAt(null);
   };
@@ -1161,6 +1167,7 @@ INSTRUCTIONS
                 onDownloadWord={handleDownloadNotesWord}
                 onUpdatePolicy={setDraftedPolicy}
                 hasAnalysis={!!analysis}
+                exporting={exporting}
               />
             )}
 
@@ -1172,6 +1179,7 @@ INSTRUCTIONS
                 reportFields={reportFields}
                 setReportFields={setReportFields}
                 onGenerate={handleGenerateWord}
+                exporting={exporting}
               />
             )}
           </div>

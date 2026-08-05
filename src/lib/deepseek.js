@@ -3,13 +3,16 @@
 // OpenAI-compatible endpoint at api.deepseek.com.
 // Ref: https://api-docs.deepseek.com/
 //
-// NOTE: model strings 'deepseek-v4-pro' and 'deepseek-v4-flash' are used
-// as specified in the build brief. If DeepSeek publishes these models under
-// different names (e.g. 'deepseek-chat', 'deepseek-reasoner'), update the
-// DEFAULT_MODEL constant below and the Settings panel options accordingly.
+// NOTE: 'deepseek-v4-flash' is the ONE model this app calls going forward
+// (per explicit user instruction — no Pro). It's a real, current canonical
+// model id — GET /models on the live API returns exactly 'deepseek-v4-flash'
+// and 'deepseek-v4-pro'. ('deepseek-chat' / 'deepseek-reasoner' are legacy
+// aliases that still resolve but are no longer listed — don't reintroduce
+// them.) Flash is a hybrid reasoning model: its usage carries
+// completion_tokens_details.reasoning_tokens, so don't shrink max_tokens.
 
 const BASE_URL              = 'https://api.deepseek.com';
-const DEFAULT_MODEL         = 'deepseek-v4-pro';
+const DEFAULT_MODEL         = 'deepseek-v4-flash';
 const DEFAULT_TIMEOUT_MS    = 120_000; // 120 s — used by CARO, notes, chat
 // Longer-running calls (e.g. expanded SCH3 with 73 tests) can opt into more
 // headroom by passing `timeoutMs: 240_000` to callDeepSeek.
@@ -121,7 +124,7 @@ function withTimeout(callerSignal, timeoutMs) {
  *
  * @param {object} opts
  * @param {string}   opts.apiKey       - Bearer token
- * @param {string}   [opts.model]      - Model string (default: deepseek-v4-pro)
+ * @param {string}   [opts.model]      - Model string (default: deepseek-v4-flash)
  * @param {string}   opts.systemPrompt - System instruction
  * @param {string}   opts.userPrompt   - User message (contains markdown + prompt)
  * @param {AbortSignal} [opts.signal]  - AbortController signal for cancellation
@@ -234,7 +237,10 @@ export async function chatDeepSeek({
     ],
     temperature,
     top_p,
-    max_tokens: 4000,
+    // Headroom for reasoning: flash spends reasoning tokens out of this same
+    // budget, and a budget that reasoning exhausts yields EMPTY content rather
+    // than a short answer. 4000 was sized for a non-reasoning model.
+    max_tokens: 8000,
     stream: false,
   };
 
@@ -268,8 +274,9 @@ export async function chatDeepSeek({
     const data = await response.json();
     if (onUsage && data.usage) {
       onUsage({
-        input_tokens:  data.usage.prompt_tokens     || 0,
-        output_tokens: data.usage.completion_tokens || 0,
+        input_tokens:     data.usage.prompt_tokens              || 0,
+        output_tokens:    data.usage.completion_tokens          || 0,
+        cache_hit_tokens: data.usage.prompt_cache_hit_tokens     || 0,
       });
     }
     const content = data.choices?.[0]?.message?.content;
@@ -417,8 +424,9 @@ async function _doCallInner({
     content = accumulated;
     if (onUsage && usage) {
       onUsage({
-        input_tokens:  usage.prompt_tokens    || 0,
-        output_tokens: usage.completion_tokens || 0,
+        input_tokens:     usage.prompt_tokens              || 0,
+        output_tokens:    usage.completion_tokens          || 0,
+        cache_hit_tokens: usage.prompt_cache_hit_tokens     || 0,
       });
     }
   } else {
@@ -427,8 +435,9 @@ async function _doCallInner({
     // Report token usage to caller
     if (onUsage && data.usage) {
       onUsage({
-        input_tokens:  data.usage.prompt_tokens    || 0,
-        output_tokens: data.usage.completion_tokens || 0,
+        input_tokens:     data.usage.prompt_tokens          || 0,
+        output_tokens:    data.usage.completion_tokens      || 0,
+        cache_hit_tokens: data.usage.prompt_cache_hit_tokens || 0,
       });
     }
 
@@ -454,7 +463,18 @@ async function _doCallInner({
         throw new ApiError('DeepSeek content filter blocked the response. Try a different document or contact DeepSeek support.');
       }
       if (finishReason === 'length') {
-        throw new ApiError('Response was truncated before any content was emitted. The prompt may be too long. Try the flash model or reduce the PDF size.');
+        // deepseek-v4-flash is a hybrid reasoning model: reasoning tokens are
+        // drawn from the SAME max_tokens budget as the answer. If reasoning
+        // exhausts it, the API returns 200 with empty content and
+        // finish_reason 'length' — verified live. Name that cause, because the
+        // old "try the flash model" advice is meaningless now flash is the
+        // only model.
+        const reasoning = data.usage?.completion_tokens_details?.reasoning_tokens;
+        throw new ApiError(
+          'The model used its whole output budget on internal reasoning and emitted no answer'
+          + (reasoning ? ` (${reasoning} reasoning tokens)` : '')
+          + '. Reduce the document size, or split the review into smaller runs.'
+        );
       }
     }
   }
@@ -462,7 +482,7 @@ async function _doCallInner({
   if (!content) {
     throw new ApiError(
       'Empty response from DeepSeek API. ' +
-      'See the browser console for the raw response payload — common causes are an invalid model name (verify deepseek-v4-pro / deepseek-v4-flash exist on your DeepSeek plan), or a temporary upstream issue (auto-retry should have kicked in for 5xx errors).'
+      'See the browser console for the raw response payload — common causes are an invalid model name (verify deepseek-v4-flash exists on your DeepSeek plan), or a temporary upstream issue (auto-retry should have kicked in for 5xx errors).'
     );
   }
 

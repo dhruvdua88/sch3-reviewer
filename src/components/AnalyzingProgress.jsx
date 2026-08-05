@@ -21,12 +21,10 @@ import { COLORS, FONTS, BTN_GHOST } from '../styles/tokens.js';
 // (Mar-2026); the 240 s timeout still leaves comfortable headroom.
 const PHASE_DURATIONS = {
   'analyzing-sch3': {
-    'deepseek-reasoner': 75_000,
-    'deepseek-chat':     45_000,
+    'deepseek-v4-flash': 45_000,
   },
   'analyzing-caro': {
-    'deepseek-reasoner': 25_000,
-    'deepseek-chat':     16_000,
+    'deepseek-v4-flash': 16_000,
   },
 };
 
@@ -50,7 +48,7 @@ const CARO_STAGES = [
 
 function getEstimatedDuration(phase, model) {
   return PHASE_DURATIONS[phase]?.[model]
-       ?? PHASE_DURATIONS[phase]?.['deepseek-v4-pro']
+       ?? PHASE_DURATIONS[phase]?.['deepseek-v4-flash']
        ?? 45_000;
 }
 

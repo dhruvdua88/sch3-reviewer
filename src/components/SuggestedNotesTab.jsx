@@ -19,6 +19,7 @@ export function SuggestedNotesTab({
   onDownloadWord,
   onUpdatePolicy,           // called with the full updated draftedPolicy when reviewer edits
   hasAnalysis,              // bool — true if there's an analysis to base the policy on
+  exporting,                // bool — true while any export (Excel/Word/engagement) is in flight
 }) {
   const [copiedHeading, setCopiedHeading] = useState(null);
 
@@ -121,7 +122,7 @@ export function SuggestedNotesTab({
               <FileSignature size={13} /> Re-draft
             </button>
           )}
-          <button onClick={onDownloadWord} disabled={generating} style={{ ...BTN_PRIMARY, fontSize: 13, opacity: generating ? 0.6 : 1 }}>
+          <button onClick={onDownloadWord} disabled={generating || exporting} style={{ ...BTN_PRIMARY, fontSize: 13, opacity: (generating || exporting) ? 0.6 : 1 }}>
             <Download size={14} /> Download as Word
           </button>
         </div>

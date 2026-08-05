@@ -33,7 +33,7 @@ export const ROMAN_LOWER = [
 ];
 
 // ---- Token cost estimate (DeepSeek approximate rates, USD → INR) ----
-// deepseek-v4-pro rates assumed similar to V3: $0.27/M input, $1.10/M output
+// deepseek-v4-flash rates assumed similar to V3: $0.27/M input, $1.10/M output
 // USD/INR ≈ 84 (approximation — update as needed)
 const USD_TO_INR = 84;
 const INPUT_COST_PER_M  = 0.27;  // USD
